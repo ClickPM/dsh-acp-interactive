@@ -21,22 +21,32 @@ import {
   type AuthenticateRequest,
   type AvailableCommand,
   type CancelNotification,
+  type CloseSessionRequest,
+  type CloseSessionResponse,
   type InitializeRequest,
   type InitializeResponse,
+  type ListSessionsRequest,
+  type ListSessionsResponse,
+  type LoadSessionRequest,
+  type LoadSessionResponse,
   type NewSessionRequest,
   type NewSessionResponse,
   type PromptRequest,
   type PromptResponse,
+  type ResumeSessionRequest,
+  type ResumeSessionResponse,
   type SessionNotification,
   type StopReason,
   type Stream,
 } from '@agentclientprotocol/sdk'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type ContentBlock, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TodoItem, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Declaration merges for the plugin-owned events and services projected below.
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
+import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-tools'
 import { admitTextPrompt, admittedText, InteractivePromptError } from './content.js'
@@ -50,7 +60,7 @@ import {
 
 export const name = 'acp-interactive'
 /** Interactive UI dependencies; model and tool providers remain composition choices. */
-export const inject = ['agents', 'commands', 'tools']
+export const inject = ['agents', 'commands', 'tools', 'sessionPersistence', 'sessionQuery']
 
 /** Provider/model defaults for agents created by this ACP server. */
 export interface AcpInteractiveConfig {
@@ -84,6 +94,8 @@ interface CommandInflight {
   kind: 'command'
   controller: AbortController
   cancelRequested: boolean
+  done: Promise<void>
+  finish: () => void
 }
 
 interface UsageState {
@@ -100,6 +112,13 @@ interface SessionRecord {
   outputTail: Promise<void>
   usage: UsageState
   inflight: AgentInflight | CommandInflight | undefined
+  closing: Promise<void> | undefined
+}
+
+interface StartOperation {
+  controller: AbortController
+  done: Promise<void>
+  finish: () => void
 }
 
 interface ContinuableDrain {
@@ -118,10 +137,12 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const tools = ctx.tools
   const logger = ctx.logger
   const sessions = new Map<SessionId, SessionRecord>()
+  const startingSessions = new Map<SessionId, StartOperation>()
   const pendingCommandSnapshots = new Map<SessionId, SessionRecord>()
   let closed = false
   let terminalOutputEnabled = false
   let conn: AgentSideConnection
+  let drainTail = Promise.resolve()
 
   const assertOpen = (): void => {
     if (closed) throw internalError('the interactive ACP bridge has been disposed')
@@ -130,6 +151,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const requireSession = (sessionId: SessionId): SessionRecord => {
     const record = sessions.get(sessionId)
     if (record === undefined) throw invalidParams(`unknown session: ${sessionId}`)
+    if (record.closing !== undefined) throw invalidParams(`session is closing: ${sessionId}`)
     return record
   }
 
@@ -160,6 +182,119 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       sessionUpdate: 'available_commands_update',
       availableCommands: availableCommands(record),
     })
+  }
+
+  const makeRecord = (handle: AgentHandle): SessionRecord => ({
+    agent: handle.agent,
+    dispose: () => handle.dispose(),
+    presenter: new ToolPresenter(
+      tools,
+      (message) => { logger.warn(message) },
+      handle.agent,
+    ),
+    terminal: { enabled: terminalOutputEnabled, cwd: handle.agent.session.header.cwd },
+    outputTail: Promise.resolve(),
+    usage: { size: undefined, used: 0, lastSample: undefined },
+    inflight: undefined,
+    closing: undefined,
+  })
+
+  const drainDescendants = (parents: readonly Agent[]): Promise<void> => {
+    const subagents = ctx.get('subagents') as ContinuableDrain | undefined
+    if (subagents === undefined) return Promise.resolve()
+    const drain = drainTail.then(() => subagents.drainContinuableDescendants(parents))
+    drainTail = drain.catch((error: unknown) => {
+      logger.warn(`acp-interactive: continuable subagent teardown failed: ${String(error)}`)
+    })
+    return drainTail
+  }
+
+  const cancelRecord = (record: SessionRecord, reason: Error): void => {
+    const inflight = record.inflight
+    if (inflight?.kind === 'command') {
+      inflight.cancelRequested = true
+      inflight.controller.abort(reason)
+    } else if (inflight?.kind === 'agent') {
+      inflight.cancelRequested = true
+      settleAfterQuiescence(record, inflight)
+    }
+    record.agent.cancel({ kind: 'user' })
+  }
+
+  const awaitRecordIdle = async (record: SessionRecord): Promise<void> => {
+    const inflight = record.inflight
+    if (inflight?.kind === 'command') await inflight.done
+    await record.agent.whenIdle()
+    await record.outputTail
+  }
+
+  const closeRecord = (record: SessionRecord): Promise<void> => {
+    if (record.closing !== undefined) return record.closing
+    const sessionId = record.agent.session.id
+    record.closing = (async () => {
+      cancelRecord(record, new Error('ACP session closed'))
+      await awaitRecordIdle(record)
+      await drainDescendants([record.agent])
+      await record.dispose()
+    })().finally(() => {
+      /* v8 ignore next -- the exact record stays mapped until this owner finishes closing it. */
+      if (sessions.get(sessionId) === record) sessions.delete(sessionId)
+      /* v8 ignore next -- an outbound session response normally clears this before a client can close it. */
+      if (pendingCommandSnapshots.get(sessionId) === record) pendingCommandSnapshots.delete(sessionId)
+    })
+    return record.closing
+  }
+
+  const resumeRecord = async (
+    params: LoadSessionRequest | ResumeSessionRequest,
+    replay: boolean,
+  ): Promise<{ record: SessionRecord; events: readonly SessionEvent[] }> => {
+    assertOpen()
+    validateRestoredSessionParams(params)
+    const sessionId = SessionId(params.sessionId)
+    if (sessions.has(sessionId) || startingSessions.has(sessionId)) {
+      throw invalidParams(`session is already active in this ACP connection: ${sessionId}`)
+    }
+    if (agents.get(sessionId) !== undefined) {
+      throw invalidParams(`session is already active outside this ACP connection: ${sessionId}`)
+    }
+
+    const settled = Promise.withResolvers<void>()
+    const start: StartOperation = {
+      controller: new AbortController(),
+      done: settled.promise,
+      finish: () => { settled.resolve() },
+    }
+    startingSessions.set(sessionId, start)
+    try {
+      const snapshot = await ctx.sessionQuery.readSession(sessionId)
+      if (snapshot.session.cwd === undefined) {
+        throw invalidParams(`session has no recorded cwd: ${sessionId}`)
+      }
+      if (snapshot.session.cwd !== params.cwd) {
+        throw invalidParams(`cwd does not match session ${sessionId}: expected ${snapshot.session.cwd}`)
+      }
+      if (replay) validateReplayableHistory(snapshot.events)
+      const handle = await agents.resume({
+        resumeSessionId: sessionId,
+        agentOptions: agentOptions(config),
+        signal: start.controller.signal,
+      })
+      if (closed || start.controller.signal.aborted) {
+        await handle.dispose()
+        throw internalError('connection closed during session restore')
+      }
+      const record = makeRecord(handle)
+      sessions.set(sessionId, record)
+      return { record, events: snapshot.events }
+    } catch (error: unknown) {
+      if (error instanceof RequestError) throw error
+      throw internalError(`session restore failed: ${errorChain(error)}`)
+    } finally {
+      /* v8 ignore next -- this exact operation owns the map entry until its finally block. */
+      if (startingSessions.get(sessionId) === start) startingSessions.delete(sessionId)
+      start.finish()
+    }
   }
 
   const announceInitialCommands = (message: AnyMessage): void => {
@@ -279,7 +414,9 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       await record.outputTail
       return { stopReason: 'end_turn' }
     } finally {
-      record.inflight = undefined
+      /* v8 ignore next -- this command owns the slot until its own finally block. */
+      if (record.inflight === inflight) record.inflight = undefined
+      inflight.finish()
     }
   }
 
@@ -292,7 +429,13 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           protocolVersion: PROTOCOL_VERSION,
           agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.2.0' },
           agentCapabilities: {
+            loadSession: true,
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
+            sessionCapabilities: {
+              list: {},
+              resume: {},
+              close: {},
+            },
           },
           authMethods: [],
         })
@@ -306,32 +449,97 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         assertOpen()
         validateSessionParams(params)
         const sessionId = SessionId(randomUUID())
-        const handle = await agents.create({
-          sessionId,
-          meta: { cwd: params.cwd },
-          agentOptions: agentOptions(config),
-        })
-        /* v8 ignore next 4 -- a real stdio close can race the asynchronous agent factory. */
-        if (closed) {
-          await handle.dispose()
-          throw internalError('connection closed during session/new')
+        const settled = Promise.withResolvers<void>()
+        const start: StartOperation = {
+          controller: new AbortController(),
+          done: settled.promise,
+          finish: () => { settled.resolve() },
         }
-        const record: SessionRecord = {
-          agent: handle.agent,
-          dispose: () => handle.dispose(),
-          presenter: new ToolPresenter(
-            tools,
-            (message) => { logger.warn(message) },
-            handle.agent,
-          ),
-          terminal: { enabled: terminalOutputEnabled, cwd: handle.agent.session.header.cwd },
-          outputTail: Promise.resolve(),
-          usage: { size: undefined, used: 0, lastSample: undefined },
-          inflight: undefined,
+        startingSessions.set(sessionId, start)
+        try {
+          const handle = await agents.create({
+            sessionId,
+            meta: { cwd: params.cwd },
+            agentOptions: agentOptions(config),
+            signal: start.controller.signal,
+          })
+          /* v8 ignore next 4 -- a real stdio close can race the asynchronous agent factory. */
+          if (closed) {
+            await handle.dispose()
+            throw internalError('connection closed during session/new')
+          }
+          const record = makeRecord(handle)
+          sessions.set(sessionId, record)
+          pendingCommandSnapshots.set(sessionId, record)
+          return { sessionId }
+        } finally {
+          /* v8 ignore next -- this exact operation owns the map entry until its finally block. */
+          if (startingSessions.get(sessionId) === start) startingSessions.delete(sessionId)
+          start.finish()
         }
-        sessions.set(sessionId, record)
-        pendingCommandSnapshots.set(sessionId, record)
-        return { sessionId }
+      },
+
+      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+        assertOpen()
+        if (params.cursor !== undefined && params.cursor !== null) {
+          throw invalidParams('session/list cursors are not supported')
+        }
+        if (params.cwd !== undefined && params.cwd !== null && !isAbsolute(params.cwd)) {
+          throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
+        }
+        const records = (await ctx.sessionQuery.listSessions())
+          .filter(record => record.header.cwd !== undefined
+            && (params.cwd === undefined || params.cwd === null || record.header.cwd === params.cwd))
+        const titleResults = await ctx.sessionQuery.readTitleSnapshots(records.map(record => record.header.id))
+        const titles = new Map(titleResults.flatMap((result) => {
+          if (result.status === 'rejected') {
+            logger.warn(`acp-interactive: title read failed for session ${result.sessionId}: ${errorChain(result.reason)}`)
+            return []
+          }
+          return result.value.title === undefined ? [] : [[result.sessionId, result.value.title.title] as const]
+        }))
+        return {
+          sessions: records.map((record) => {
+            const title = titles.get(record.header.id)
+            return {
+              sessionId: record.header.id,
+              cwd: record.header.cwd as string,
+              ...title === undefined ? {} : { title },
+            }
+          }),
+        }
+      },
+
+      async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+        const { record, events } = await resumeRecord(params, true)
+        for (const update of replayHistory(record, events)) notify(record, update)
+        notifyCommands(record)
+        await record.outputTail
+        return {}
+      },
+
+      async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
+        const { record } = await resumeRecord(params, false)
+        notifyCommands(record)
+        await record.outputTail
+        return {}
+      },
+
+      async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
+        assertOpen()
+        const sessionId = SessionId(params.sessionId)
+        const starting = startingSessions.get(sessionId)
+        if (starting !== undefined) {
+          starting.controller.abort(new Error('ACP session closed during restore'))
+          await starting.done
+        }
+        const record = sessions.get(sessionId)
+        if (record === undefined) {
+          if (starting !== undefined) return {}
+          throw invalidParams(`unknown session: ${sessionId}`)
+        }
+        await closeRecord(record)
+        return {}
       },
 
       async prompt(params: PromptRequest): Promise<PromptResponse> {
@@ -348,10 +556,13 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         const text = admittedText(content)
         if (text.startsWith('/')) {
+          const completed = Promise.withResolvers<void>()
           const inflight: CommandInflight = {
             kind: 'command',
             controller: new AbortController(),
             cancelRequested: false,
+            done: completed.promise,
+            finish: () => { completed.resolve() },
           }
           record.inflight = inflight
           return runCommand(record, text, inflight)
@@ -360,7 +571,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         if (agents.get(record.agent.id) !== record.agent) {
           throw internalError('prompt was not queued: the agent was disposed outside the bridge')
         }
-        const completion = promiseWithResolvers<StopReason>()
+        const completion = Promise.withResolvers<StopReason>()
         const message = createUserMessage({ content, source: { kind: 'user' } })
         const inflight: AgentInflight = {
           kind: 'agent',
@@ -416,38 +627,28 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const quiesce = (): Promise<void> => {
     if (quiescing !== undefined) return quiescing
     closed = true
+    const starts = [...startingSessions.values()]
+    for (const start of starts) start.controller.abort(new Error('interactive ACP bridge disposed'))
     const records = [...sessions.values()]
     sessions.clear()
     pendingCommandSnapshots.clear()
-    for (const record of records) {
-      const inflight = record.inflight
-      if (inflight?.kind === 'command') {
-        inflight.cancelRequested = true
-        inflight.controller.abort(new Error('interactive ACP bridge disposed'))
-      } else if (inflight?.kind === 'agent') {
-        inflight.cancelRequested = true
-        settleAfterQuiescence(record, inflight)
-      }
-      record.agent.cancel({ kind: 'user' })
-    }
-    quiescing = (async () => {
-      await Promise.all(records.map(async (record) => {
-        await record.agent.whenIdle()
-        await record.outputTail
-      }))
-      const subagents = ctx.get('subagents') as ContinuableDrain | undefined
-      if (subagents !== undefined) {
-        try {
-          await subagents.drainContinuableDescendants(records.map(record => record.agent))
-        } catch (error: unknown) {
-          logger.warn(`acp-interactive: continuable subagent teardown failed: ${String(error)}`)
-        }
-      }
-      const results = await Promise.allSettled(records.map(record => record.dispose()))
+    const closing = records.flatMap(record => record.closing === undefined ? [] : [record.closing])
+    const batch = records.filter(record => record.closing === undefined)
+    for (const record of batch) cancelRecord(record, new Error('interactive ACP bridge disposed'))
+    const batchClose = (async () => {
+      await Promise.all([
+        ...batch.map(record => awaitRecordIdle(record)),
+      ])
+      await drainDescendants(batch.map(record => record.agent))
+      const results = await Promise.allSettled(batch.map(record => record.dispose()))
       const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
       if (failures.length > 0) {
         throw new AggregateError(failures, failures.map(failure => errorChain(failure)).join('; '))
       }
+    })()
+    for (const record of batch) record.closing = batchClose
+    quiescing = (async () => {
+      await Promise.all([...closing, batchClose, ...starts.map(start => start.done)])
     })()
     return quiescing
   }
@@ -506,6 +707,106 @@ function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotifi
     }
     default:
       return []
+  }
+}
+
+function replayHistory(record: SessionRecord, events: readonly SessionEvent[]): SessionNotification['update'][] {
+  validateReplayableHistory(events)
+  const updates: SessionNotification['update'][] = []
+  let lastPlan: Extract<SessionEvent, { type: 'todo/write' }> | undefined
+  let lastTitle: Extract<SessionEvent, { type: 'session/title' }> | undefined
+  let lastContext: Extract<SessionEvent, { type: 'request/context' }> | undefined
+  let lastUsage: Extract<SessionEvent, { type: 'assistant/message' }> | undefined
+
+  for (const event of events) {
+    switch (event.type) {
+      case 'user/message':
+        if (event.data.source.kind === 'user') {
+          updates.push(...replayMessageContent('user_message_chunk', event.data.content))
+        }
+        break
+      case 'assistant/message':
+        updates.push(...replayMessageContent('agent_message_chunk', event.data.message.content))
+        if (event.data.usage !== undefined) lastUsage = event
+        break
+      case 'tool/call':
+      case 'tool/result':
+        updates.push(...projectEvent(record, event))
+        break
+      case 'todo/write':
+        lastPlan = event
+        break
+      case 'session/title':
+        lastTitle = event
+        break
+      case 'request/context':
+        lastContext = event
+        break
+      default:
+        // Other durable events do not have an ACP history projection.
+        break
+    }
+  }
+
+  if (lastPlan !== undefined) {
+    updates.push({ sessionUpdate: 'plan', ...todosToPlan(lastPlan.data.todos) })
+  }
+  if (lastTitle !== undefined) {
+    updates.push({
+      sessionUpdate: 'session_info_update',
+      title: lastTitle.data.title,
+      updatedAt: new Date(lastTitle.time).toISOString(),
+    })
+  }
+  record.usage.size = lastContext?.data.contextWindow
+  if (lastUsage?.data.usage !== undefined) {
+    updates.push(...projectUsage(record, lastUsage.data.turn, lastUsage.data.step, lastUsage.data.usage))
+  }
+  return updates
+}
+
+function replayMessageContent(
+  kind: 'user_message_chunk' | 'agent_message_chunk',
+  content: readonly ContentBlock[],
+): SessionNotification['update'][] {
+  return content.flatMap((block): SessionNotification['update'][] => {
+    switch (block.type) {
+      case 'text':
+        return [{ sessionUpdate: kind, content: { type: 'text', text: block.text } }]
+      case 'reasoning':
+        return kind === 'agent_message_chunk'
+          ? [{ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: block.text } }]
+          : (() => { throw new Error('unsupported restored user message content: reasoning') })()
+      case 'tool-call':
+      case 'tool-result':
+        if (kind === 'user_message_chunk') {
+          throw new Error(`unsupported restored user message content: ${block.type}`)
+        }
+        /* v8 ignore next -- assistant tool blocks are represented by their paired tool events. */
+        return []
+      case 'image':
+        throw new Error('image content is not supported in restored session history')
+      default:
+        /* v8 ignore next -- merge-extensible content is refused; a first-party producer cannot create this branch. */
+        throw new Error(`unsupported restored session content: ${(block as { type: string }).type}`)
+    }
+  })
+}
+
+function validateReplayableHistory(events: readonly SessionEvent[]): void {
+  for (const event of events) {
+    if (event.type === 'user/message' && event.data.source.kind === 'user') {
+      replayMessageContent('user_message_chunk', event.data.content)
+    } else if (event.type === 'assistant/message') {
+      replayMessageContent('agent_message_chunk', event.data.message.content)
+    } else if (event.type === 'tool/result') {
+      const block = event.data.message.content[0]
+      for (const content of block.content) {
+        if (content.type !== 'text') {
+          throw new Error(`unsupported restored tool result content: ${content.type}`)
+        }
+      }
+    }
   }
 }
 
@@ -587,20 +888,6 @@ function renderThrown(value: unknown): string {
   }
 }
 
-function promiseWithResolvers<T>(): {
-  promise: Promise<T>
-  resolve: (value: T | PromiseLike<T>) => void
-  reject: (reason?: unknown) => void
-} {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((innerResolve, innerReject) => {
-    resolve = innerResolve
-    reject = innerReject
-  })
-  return { promise, resolve, reject }
-}
-
 function agentOptions(config: AcpInteractiveConfig): { provider?: string; model?: string } {
   return {
     ...config.provider === undefined ? {} : { provider: config.provider },
@@ -611,7 +898,17 @@ function agentOptions(config: AcpInteractiveConfig): { provider?: string; model?
 function validateSessionParams(params: NewSessionRequest): void {
   if (!isAbsolute(params.cwd)) throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
   if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
-    throw invalidParams('additionalDirectories is not supported in phase one')
+    throw invalidParams('additionalDirectories is not supported')
   }
-  if (params.mcpServers.length > 0) throw invalidParams('mcpServers is not supported in phase one')
+  if (params.mcpServers.length > 0) throw invalidParams('mcpServers is not supported')
+}
+
+function validateRestoredSessionParams(params: LoadSessionRequest | ResumeSessionRequest): void {
+  if (!isAbsolute(params.cwd)) throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
+  if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
+    throw invalidParams('additionalDirectories is not supported')
+  }
+  if (params.mcpServers !== undefined && params.mcpServers.length > 0) {
+    throw invalidParams('mcpServers is not supported')
+  }
 }

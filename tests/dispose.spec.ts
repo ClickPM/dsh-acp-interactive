@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { deferred, makeHarness, type BridgeHarness } from './harness.js'
+import { makeHarness, type BridgeHarness } from './harness.js'
 
 async function session(harness: BridgeHarness): Promise<string> {
   await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -31,7 +31,7 @@ describe('interactive ACP connection ownership', () => {
 
   it('disposal aborts a command prompt before releasing its session', async () => {
     harness = await makeHarness([])
-    const started = deferred<undefined>()
+    const started = Promise.withResolvers<undefined>()
     harness.ctx.commands.register({
       name: 'wait',
       description: 'Wait',

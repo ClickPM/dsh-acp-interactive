@@ -8,7 +8,7 @@ This package is a UI transport plugin. The agent loop, model provider, tools, sa
 
 ## Plugin
 
-`apply(ctx, config)` requires `agents`, `commands`, and `tools`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event and approval is checked against the exact agent object before it reaches the wire.
+`apply(ctx, config)` requires `agents`, `commands`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event and approval is checked against the exact agent object before it reaches the wire.
 
 | Config | Meaning |
 |---|---|
@@ -17,11 +17,15 @@ This package is a UI transport plugin. The agent loop, model provider, tools, sa
 
 `stream` is a runtime-only test override. Production reserves stdout for ACP frames and reads frames from stdin.
 
-## Phase-one protocol
+## Protocol
 
-The plugin implements `initialize`, `session/new`, `session/prompt`, and `session/cancel`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall` and `presentResult` methods; generic, diff, and terminal intents map to ACP cards without switching on tool names. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
+The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall` and `presentResult` methods; generic, diff, and terminal intents map to ACP cards without switching on tool names. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
 
-Text prompts and direct slash commands are supported. Images, resource links, audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Persisted session discovery and loading, model/config selectors, modes, and elicitation remain later phases.
+`session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
+
+`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels in-flight model or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
+
+Text prompts and direct slash commands are supported. Images, resource links, audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Restored history containing rich human, assistant, or tool-result blocks also fails instead of dropping content. Model/config selectors, modes, and elicitation remain later phases.
 
 ## Tool execution and permissions
 
@@ -31,7 +35,7 @@ The Zed terminal extension is capability-gated. When the client advertises `_met
 
 ## Connecting Zed
 
-This repository publishes the bridge as the Cordis entry `dsh-acp-interactive`. Put that entry in a dedicated ACP composition; do not add it to an ordinary console profile because stdout carries JSON-RPC frames only.
+This repository publishes the bridge as the Cordis entry `dsh-acp-interactive`. Put that entry in a dedicated ACP composition with session-persistence and session-query providers; do not add it to an ordinary console profile because stdout carries JSON-RPC frames only.
 
 The currently verified Windows launch uses the DeepSeek Harness source checkout and its interactive ACP example. In Zed, open `Settings > AI > General > External Agents > Add Custom Agent` and fill the form:
 
@@ -86,7 +90,8 @@ The UI projection does not affect reuse. A tool result appends through the stand
 
 ## Known Limitations and Deferred Work
 
-- Session list/load/resume/close/delete are not yet implemented.
+- `session/delete` is not advertised. The persistence Service Definition has no backend-independent deletion method; direct JSONL or SQLite manipulation in this transport would bypass persistence ownership and reconciliation.
+- `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
 - Prompt input is text-only; richer ACP blocks fail instead of degrading silently.
 - Config selectors, collaboration modes, user-question elicitation, MCP servers, and additional directories are deferred.
 - Terminal output is delivered at tool completion rather than incrementally.

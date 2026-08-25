@@ -12,7 +12,6 @@ import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import {
-  deferred,
   errorResponse,
   makeHarness,
   maxTokensResponse,
@@ -174,7 +173,7 @@ describe('interactive ACP bridge edges', () => {
     harness.ctx.commands.register({ name: 'error', description: 'Error', handler: () => ({ kind: 'error', text: 'bad input' }) })
     harness.ctx.commands.register({ name: 'empty', description: 'Empty', handler: () => ({ kind: 'success' }) })
     harness.ctx.commands.register({ name: 'throw', description: 'Throw', handler: () => { throw new Error('command exploded') } })
-    const started = deferred<undefined>()
+    const started = Promise.withResolvers<undefined>()
     harness.ctx.commands.register({
       name: 'wait',
       description: 'Wait',

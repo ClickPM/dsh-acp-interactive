@@ -20,21 +20,95 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
+import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
+import SessionQueryEngine, {
+  type SessionEventSearchPage,
+  type SessionEventSearchRequest,
+  type SessionSearchExecContext,
+  type SessionSearchHit,
+  type SessionSearchPage,
+  type SessionSearchRequest,
+} from '@deepseek-ai/dsh-session-query'
 import * as InteractiveAcp from '../src/index.js'
 
-/** ES2023-compatible deferred promise for lifecycle tests. */
-export function deferred<T>(): {
-  promise: Promise<T>
-  resolve: (value: T | PromiseLike<T>) => void
-  reject: (reason?: unknown) => void
-} {
-  let resolve!: (value: T | PromiseLike<T>) => void
-  let reject!: (reason?: unknown) => void
-  const promise = new Promise<T>((innerResolve, innerReject) => {
-    resolve = innerResolve
-    reject = innerReject
-  })
-  return { promise, resolve, reject }
+interface PersistedEntry {
+  meta: SessionHeader
+  events: readonly SessionEvent[]
+}
+
+class HarnessPersistence extends SessionPersistence {
+  override readonly supportsRawArtifacts = false
+  static inject = ['sessions']
+
+  constructor(ctx: Context, private readonly entries: Map<SessionId, PersistedEntry>) {
+    super(ctx)
+  }
+
+  locate(): undefined {
+    return undefined
+  }
+
+  create(meta: SessionHeader): Promise<void> {
+    this.entries.set(meta.id, { meta: structuredClone(meta), events: [] })
+    return Promise.resolve()
+  }
+
+  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
+    const entry = this.entries.get(id)
+    if (entry === undefined) return Promise.reject(new Error(`missing persisted session: ${id}`))
+    entry.events = [...entry.events, ...structuredClone(events)]
+    return Promise.resolve()
+  }
+
+  load(id: SessionId): Promise<PersistedEntry> {
+    return this.inspect(id)
+  }
+
+  inspect(id: SessionId, signal?: AbortSignal): Promise<PersistedEntry> {
+    signal?.throwIfAborted()
+    const entry = this.entries.get(id)
+    if (entry === undefined) return Promise.reject(new Error(`missing persisted session: ${id}`))
+    return Promise.resolve(structuredClone(entry))
+  }
+
+  async readFrom(
+    id: SessionId,
+    fromSeq: number,
+    signal?: AbortSignal,
+  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
+    const entry = await this.inspect(id, signal)
+    return { meta: entry.meta, events: entry.events.filter(event => event.seq >= fromSeq) }
+  }
+
+  list(signal?: AbortSignal): Promise<SessionHeader[]> {
+    signal?.throwIfAborted()
+    return Promise.resolve([...this.entries.values()].map(entry => structuredClone(entry.meta)))
+  }
+
+  listSnapshots(signal?: AbortSignal) {
+    signal?.throwIfAborted()
+    return Promise.resolve([...this.entries.values()].map(entry => ({
+      header: structuredClone(entry.meta),
+      revision: SessionPersistenceRevision(JSON.stringify(entry)),
+    })))
+  }
+}
+
+class HarnessSessionQuery extends SessionQueryEngine {
+  override searchSessions(
+    _request: SessionSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionSearchPage<SessionSearchHit>> {
+    return Promise.resolve({ items: [] })
+  }
+
+  override async searchEvents(
+    request: SessionEventSearchRequest,
+    _exec?: SessionSearchExecContext,
+  ): Promise<SessionEventSearchPage> {
+    return { session: (await this.readSurface(request.sessionId)).session, items: [] }
+  }
 }
 
 /** Scripted model adapter used by bridge tests. */
@@ -122,6 +196,7 @@ export interface BridgeHarness {
   client: ClientSideConnection
   updates: Array<{ sessionId: string; update: SessionNotification['update'] }>
   permissionRequests: RequestPermissionRequest[]
+  persisted: Map<SessionId, PersistedEntry>
   onPermission: (request: RequestPermissionRequest) => RequestPermissionResponse
   onSessionUpdateError: (() => void) | undefined
   closeClientTransport(): Promise<void>
@@ -142,6 +217,9 @@ export async function makeHarness(
 ): Promise<BridgeHarness> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: '' } })
+  const persisted = new Map<SessionId, PersistedEntry>()
+  await ctx.plugin(HarnessPersistence, persisted)
+  await ctx.plugin(HarnessSessionQuery)
   await ctx.plugin(CommandRuntime)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new MockAdapter(script)
@@ -163,6 +241,7 @@ export async function makeHarness(
     client: undefined as unknown as ClientSideConnection,
     updates,
     permissionRequests,
+    persisted,
     onPermission: () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } }),
     onSessionUpdateError: undefined,
     closeClientTransport: () => clientToAgentWriter.close(),

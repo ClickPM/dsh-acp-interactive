@@ -54,9 +54,21 @@ dsh agent loop -> DeepSeek provider
 
 第一阶段的普通 prompt 只接受 ACP text block。图片、音频、embedded resource、额外工作目录和客户端提供的 MCP server 会被明确拒绝，不会静默丢弃。
 
+## 第二阶段
+
+第二阶段交付持久会话发现、恢复与关闭：
+
+- `session/list` 从 `ctx.sessionQuery` 的 live 优先语料库返回按创建时间倒序排列的会话，支持精确 cwd 过滤与日志标题；缺少绝对 cwd 的会话不进入 ACP 结果；
+- `session/load` 先校验持久会话及其 cwd，再通过 `ctx.agents.resume()` 恢复 agent，并重放已组装的用户／assistant 消息、reasoning、工具卡片、最后的 plan、标题、用量和命令目录；
+- `session/resume` 恢复相同的 dsh 上下文，但不重放历史，只发送当前命令目录；
+- `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和 continuable 后代完全停稳，再释放精确归属的 `AgentHandle`；
+- 恢复历史包含 ACP 无法无损表示的丰富内容时明确失败，不会静默丢弃内容。
+
+本阶段不声明 `session/delete`。`SessionPersistence` 尚未提供跨后端删除操作；transport 直接删除 JSONL 文件或修改 SQLite 私有表会绕过持久化所有权与对账。`session/list` 目前返回完整单页且不伪造 `updatedAt`，稳定 cursor 和低成本最后活动时间由 session-query 能力提供后再接入。
+
 ## 后续阶段
 
-第二阶段补齐持久会话的 `list/load/resume/close/delete`，模型和权限 config selector，plan/default mode，图片与 resource link，用户问题 elicitation，MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用不稳定 ACP 扩展。
+后续阶段包括模型与权限 config selector、plan/default mode、图片与 resource link、用户问题 elicitation、MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用不稳定 ACP 扩展。
 
 ## Zed 连接方式
 
@@ -90,3 +102,11 @@ dsh agent loop -> DeepSeek provider
 5. todo、标题、命令目录与上下文占用变化能刷新 Zed UI。
 6. 多个 Zed session 之间不串流、不串审批、不互相取消。
 7. 插件卸载或 stdio 断开时，所有由它创建的 agent 先停止并达到静止，再解除注册。
+
+## 第二阶段验收
+
+1. Zed 能发现同一 cwd 下的持久会话，并显示日志中已有的标题。
+2. `session/load` 只重放组装后的消息一次，同时恢复工具卡片、计划、标题、用量与命令目录。
+3. `session/resume` 恢复模型上下文但不重复发送历史。
+4. `session/close` 在 prompt、斜杠命令、恢复中、连接断开及并发关闭场景下都能达到完全停稳，且不会释放其他连接拥有的 agent。
+5. 无法无损投影的持久内容和不受支持的分页 cursor 明确失败。
