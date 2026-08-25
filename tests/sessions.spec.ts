@@ -150,7 +150,7 @@ describe('interactive ACP persisted sessions', () => {
       sessionId,
       cwd,
       mcpServers: [],
-    })).resolves.toEqual({})
+    })).resolves.toEqual(expect.objectContaining({ configOptions: expect.any(Array) }))
     const history = harness.updates
       .filter(update => update.sessionId === sessionId)
       .flatMap(({ update }) => update.sessionUpdate === 'user_message_chunk'
@@ -199,7 +199,8 @@ describe('interactive ACP persisted sessions', () => {
     await harness.client.closeSession({ sessionId })
     harness.updates.length = 0
 
-    await expect(harness.client.resumeSession({ sessionId, cwd })).resolves.toEqual({})
+    await expect(harness.client.resumeSession({ sessionId, cwd }))
+      .resolves.toEqual(expect.objectContaining({ configOptions: expect.any(Array) }))
     expect(harness.updates.map(update => update.update.sessionUpdate)).toEqual(['available_commands_update'])
     await expect(harness.client.resumeSession({ sessionId, cwd })).rejects.toThrow(/already active/)
     await harness.client.closeSession({ sessionId })

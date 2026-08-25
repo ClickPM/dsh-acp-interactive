@@ -8,7 +8,7 @@ This package is a UI transport plugin. The agent loop, model provider, tools, sa
 
 ## Plugin
 
-`apply(ctx, config)` requires `agents`, `commands`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event and approval is checked against the exact agent object before it reaches the wire.
+`apply(ctx, config)` requires `agents`, `commands`, `llm`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; model selection remains available without it.
 
 | Config | Meaning |
 |---|---|
@@ -25,7 +25,13 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 `session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels in-flight model or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
 
-Text prompts and direct slash commands are supported. Images, resource links, audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Restored history containing rich human, assistant, or tool-result blocks also fails instead of dropping content. Model/config selectors, modes, and elicitation remain later phases.
+Text prompts and direct slash commands are supported. Images, resource links, audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Restored history containing rich human, assistant, or tool-result blocks also fails instead of dropping content. Modes and elicitation remain later phases.
+
+## Session configuration
+
+`session/new`, `session/load`, and `session/resume` return the complete ACP `configOptions`. The model selector groups adapter model catalogs by provider and encodes the complete provider/model route. A selected route applies at the next prompt-assembly boundary; a restored session uses its latest logged request header. Client values absent from the advertised options are rejected.
+
+When `permissionPresets` is composed, a permission selector lists its presets. Switching reuses the existing `/permission` command, keeping the sandbox mode, approval policy, and durable events aligned. A running session refuses permission changes. Configuration requests are serialized per session, and prompts cannot pass an unsettled switch. The selector does not expose a separate reasoning-effort control yet.
 
 ## Tool execution and permissions
 
@@ -88,10 +94,14 @@ The ACP updates add no model tokens. Tool results retain their ordinary dsh mode
 
 The UI projection does not affect reuse. A tool result appends through the standard session surface and has that path's ordinary cache effect.
 
+### Model and permission selectors
+
+Selector metadata and switching traffic are client-only. A model selection changes the provider/model logged by the next request. A permission selection changes later tool execution and any permission text owned by the surrounding sandbox and approval plugins. The selectors themselves add no model tokens.
+
 ## Known Limitations and Deferred Work
 
 - `session/delete` is not advertised. The persistence Service Definition has no backend-independent deletion method; direct JSONL or SQLite manipulation in this transport would bypass persistence ownership and reconciliation.
 - `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
 - Prompt input is text-only; richer ACP blocks fail instead of degrading silently.
-- Config selectors, collaboration modes, user-question elicitation, MCP servers, and additional directories are deferred.
+- Collaboration modes, reasoning-effort selection, user-question elicitation, MCP servers, and additional directories are deferred.
 - Terminal output is delivered at tool completion rather than incrementally.

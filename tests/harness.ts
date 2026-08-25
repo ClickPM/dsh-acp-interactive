@@ -128,6 +128,13 @@ class MockAdapter extends LlmAdapter {
     })
   }
 
+  override listModels(provider: string): Promise<readonly LlmResolvedModelInfo[]> {
+    return Promise.resolve([
+      { provider, id: 'mock', name: 'Mock Model', context: { contextWindow: 128_000 } },
+      { provider, id: 'alternate', name: 'Alternate Model', context: { contextWindow: 64_000 } },
+    ])
+  }
+
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
     const entry = this.script.shift()

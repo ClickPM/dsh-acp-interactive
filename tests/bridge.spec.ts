@@ -3,6 +3,8 @@ import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
+import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
+import { MODEL_CONFIG_ID, PERMISSION_CONFIG_ID } from '../src/config-options.js'
 import { makeHarness, reasoningResponse, type BridgeHarness } from './harness.js'
 
 describe('interactive ACP bridge', () => {
@@ -111,6 +113,156 @@ describe('interactive ACP bridge', () => {
         { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
       ],
     }])
+  })
+
+  it('selects an exact model for the next request and rejects unknown configuration values', async () => {
+    harness = await makeHarness([reasoningResponse()])
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(created.configOptions).toContainEqual(expect.objectContaining({
+      id: MODEL_CONFIG_ID,
+      currentValue: 'mock:mock',
+      category: 'model',
+    }))
+
+    const selected = await harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      value: 'mock:alternate',
+    })
+    expect(selected.configOptions).toContainEqual(expect.objectContaining({
+      id: MODEL_CONFIG_ID,
+      currentValue: 'mock:alternate',
+    }))
+    await harness.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: 'use the selected route' }],
+    })
+    expect(harness.adapter.requests[0]).toMatchObject({ provider: 'mock', model: 'alternate' })
+
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: 'missing',
+      value: 'x',
+    })).rejects.toThrow(/unknown session configuration option/)
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      value: 'malformed',
+    })).rejects.toThrow(/unknown model selection/)
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      value: 'mock:unlisted',
+    })).rejects.toThrow(/unknown model selection/)
+
+    vi.spyOn(harness.ctx.llm, 'resolveCallConfig').mockRejectedValueOnce(new Error('route offline'))
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      value: 'mock:mock',
+    })).rejects.toThrow(/model is unavailable.*route offline/)
+  })
+
+  it('routes permission configuration through the session command and refuses a running switch', async () => {
+    harness = await makeHarness(['hang'])
+    harness.ctx.provide('shell', {
+      sandboxMode: 'workspace-write',
+      resolve() { throw new Error('permission selector test does not execute shell') },
+      run() { throw new Error('permission selector test does not execute shell') },
+      start() { throw new Error('permission selector test does not execute shell') },
+    })
+    await harness.ctx.plugin(ApprovalService)
+    await harness.ctx.plugin(PermissionPresetService, {})
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(created.configOptions).toContainEqual(expect.objectContaining({
+      id: PERMISSION_CONFIG_ID,
+      currentValue: 'workspace-write',
+    }))
+    const switched = await harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: PERMISSION_CONFIG_ID,
+      value: 'danger-full-access',
+    })
+    expect(switched.configOptions).toContainEqual(expect.objectContaining({
+      id: PERMISSION_CONFIG_ID,
+      currentValue: 'danger-full-access',
+    }))
+
+    const prompt = harness.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: 'keep running' }],
+    })
+    await vi.waitFor(() => { expect(harness!.adapter.requests).toHaveLength(1) })
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: PERMISSION_CONFIG_ID,
+      value: 'workspace-write',
+    })).rejects.toThrow(/cannot change while the session is running/)
+    await harness.client.cancel({ sessionId: created.sessionId })
+    await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
+  })
+
+  it('fails closed for unavailable permission controls and blocks prompts behind model changes', async () => {
+    harness = await makeHarness([])
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: PERMISSION_CONFIG_ID,
+      value: 'workspace-write',
+    })).rejects.toThrow(/permission configuration is unavailable/)
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      type: 'boolean',
+      value: true,
+    })).rejects.toThrow(/model configuration requires a select value/)
+
+    const deferred = Promise.withResolvers<Awaited<ReturnType<typeof harness.ctx.llm.resolveCallConfig>>>()
+    vi.spyOn(harness.ctx.llm, 'resolveCallConfig').mockReturnValueOnce(deferred.promise)
+    const selecting = harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: MODEL_CONFIG_ID,
+      value: 'mock:alternate',
+    })
+    await vi.waitFor(() => { expect(harness!.ctx.llm.resolveCallConfig).toHaveBeenCalled() })
+    await expect(harness.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: 'too soon' }],
+    })).rejects.toThrow(/configuration change is in flight/)
+    deferred.resolve({ provider: 'mock', model: 'alternate' })
+    await expect(selecting).resolves.toHaveProperty('configOptions')
+  })
+
+  it('contains configuration refresh failures and refuses missing permission commands', async () => {
+    harness = await makeHarness([])
+    const warnings: string[] = []
+    harness.ctx.logger.warn = (message: string) => { warnings.push(message) }
+    harness.ctx.provide('permissionPresets', {
+      names: ['safe'],
+      current: () => 'safe',
+      optionOf: (value: string) => ({ value, name: value }),
+    })
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: PERMISSION_CONFIG_ID,
+      value: 'unknown',
+    })).rejects.toThrow(/unknown permission preset/)
+    await expect(harness.client.setSessionConfigOption({
+      sessionId: created.sessionId,
+      configId: PERMISSION_CONFIG_ID,
+      value: 'safe',
+    })).rejects.toThrow(/permission command is unavailable/)
+
+    vi.spyOn(harness.ctx.llm, 'listProviders').mockImplementationOnce(() => { throw new Error('directory failed') })
+    harness.ctx.emit('llm/adapters-updated')
+    await vi.waitFor(() => {
+      expect(warnings.some(message => message.includes('config option refresh failed'))).toBe(true)
+    })
   })
 
   it('cancels an in-flight model turn and keeps the session reusable', async () => {

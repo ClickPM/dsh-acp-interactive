@@ -66,9 +66,18 @@ dsh agent loop -> DeepSeek provider
 
 本阶段不声明 `session/delete`。`SessionPersistence` 尚未提供跨后端删除操作；transport 直接删除 JSONL 文件或修改 SQLite 私有表会绕过持久化所有权与对账。`session/list` 目前返回完整单页且不伪造 `updatedAt`，稳定 cursor 和低成本最后活动时间由 session-query 能力提供后再接入。
 
+## 第三阶段
+
+第三阶段提供模型与权限 config selector：
+
+- 模型 selector 从 LLM provider 目录生成完整 provider/model route，并在下一次 prompt assembly 生效；
+- 恢复会话保留日志中最后使用的 route，即使 provider 目录不再公布该模型；
+- 权限 selector 复用 `/permission` 命令切换 preset，使 sandbox、审批策略与持久事件保持一致；
+- 同一 session 的配置切换串行执行，运行中的权限切换和跨越未完成切换的 prompt 会被拒绝。
+
 ## 后续阶段
 
-后续阶段包括模型与权限 config selector、plan/default mode、图片与 resource link、用户问题 elicitation、MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用不稳定 ACP 扩展。
+后续阶段包括 plan/default mode、reasoning-effort 选择、图片与 resource link、用户问题 elicitation、MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用不稳定 ACP 扩展。
 
 ## Zed 连接方式
 

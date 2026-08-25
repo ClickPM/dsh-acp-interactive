@@ -67,7 +67,7 @@ describe('interactive ACP bridge edges', () => {
     const response = await harness.client.initialize({ protocolVersion: 0, clientCapabilities: {} })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.2.0' },
+      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.3.0' },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})

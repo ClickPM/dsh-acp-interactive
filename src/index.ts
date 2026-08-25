@@ -35,11 +35,20 @@ import {
   type PromptResponse,
   type ResumeSessionRequest,
   type ResumeSessionResponse,
+  type SessionConfigOption,
   type SessionNotification,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
   type StopReason,
   type Stream,
 } from '@agentclientprotocol/sdk'
-import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
+import {
+  installModelSelection,
+  type Agent,
+  type AgentHandle,
+  type ModelSelection,
+  type ModelSelectionRef,
+} from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type ContentBlock, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TodoItem, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Declaration merges for the plugin-owned events and services projected below.
@@ -52,6 +61,14 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { admitTextPrompt, admittedText, InteractivePromptError } from './content.js'
 import { turnEndToStopReason } from './codec.js'
 import {
+  decodeModelValue,
+  hasModelValue,
+  MODEL_CONFIG_ID,
+  PERMISSION_CONFIG_ID,
+  permissionDirectory,
+  sessionConfigOptions,
+} from './config-options.js'
+import {
   projectToolCall,
   projectToolResult,
   ToolPresenter,
@@ -60,7 +77,7 @@ import {
 
 export const name = 'acp-interactive'
 /** Interactive UI dependencies; model and tool providers remain composition choices. */
-export const inject = ['agents', 'commands', 'tools', 'sessionPersistence', 'sessionQuery']
+export const inject = ['agents', 'commands', 'llm', 'tools', 'sessionPersistence', 'sessionQuery']
 
 /** Provider/model defaults for agents created by this ACP server. */
 export interface AcpInteractiveConfig {
@@ -107,12 +124,15 @@ interface UsageState {
 interface SessionRecord {
   agent: Agent
   dispose: () => Promise<void>
+  selection: ModelSelectionRef
   presenter: ToolPresenter
   terminal: TerminalRendering
   outputTail: Promise<void>
   usage: UsageState
   inflight: AgentInflight | CommandInflight | undefined
   closing: Promise<void> | undefined
+  configTail: Promise<void>
+  configuring: number
 }
 
 interface StartOperation {
@@ -139,6 +159,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const sessions = new Map<SessionId, SessionRecord>()
   const startingSessions = new Map<SessionId, StartOperation>()
   const pendingCommandSnapshots = new Map<SessionId, SessionRecord>()
+  const selections = new WeakMap<Agent, ModelSelectionRef>()
   let closed = false
   let terminalOutputEnabled = false
   let conn: AgentSideConnection
@@ -184,9 +205,46 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     })
   }
 
+  const selectionFor = (agent: Agent): ModelSelectionRef => {
+    const selection = selections.get(agent)
+    /* v8 ignore next -- every bridge create/resume installs the selection in its unpublished setup. */
+    if (selection === undefined) throw new Error('acp-interactive: agent model selection was not installed during setup')
+    return selection
+  }
+
+  const installSelection = (agentCtx: Context): void => {
+    const agent = agentCtx.agent
+    /* v8 ignore next -- AgentRegistry setup always receives the new agent's scoped context. */
+    if (agent === undefined) throw new Error('acp-interactive: agent setup has no scoped agent')
+    let picked: ModelSelection | undefined
+    const selection: ModelSelectionRef = {
+      get current(): ModelSelection | undefined {
+        if (picked !== undefined) return picked
+        const logged = agent.session.requestHeader()?.config
+        if (logged !== undefined) {
+          return {
+            provider: logged.provider,
+            model: logged.model,
+            ...logged.reasoningEffort === undefined ? {} : { reasoningEffort: logged.reasoningEffort },
+          }
+        }
+        return agent.options.provider === undefined || agent.options.model === undefined
+          ? undefined
+          : { provider: agent.options.provider, model: agent.options.model }
+      },
+      set current(next: ModelSelection | undefined) {
+        picked = next
+      },
+      assembled: undefined,
+    }
+    installModelSelection(agentCtx, selection)
+    selections.set(agent, selection)
+  }
+
   const makeRecord = (handle: AgentHandle): SessionRecord => ({
     agent: handle.agent,
     dispose: () => handle.dispose(),
+    selection: selectionFor(handle.agent),
     presenter: new ToolPresenter(
       tools,
       (message) => { logger.warn(message) },
@@ -197,7 +255,34 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     usage: { size: undefined, used: 0, lastSample: undefined },
     inflight: undefined,
     closing: undefined,
+    configTail: Promise.resolve(),
+    configuring: 0,
   })
+
+  const configOptions = (record: SessionRecord): Promise<SessionConfigOption[]> =>
+    sessionConfigOptions(ctx, record.agent, record.selection.current)
+
+  const queueConfig = <T>(record: SessionRecord, operation: () => Promise<T>): Promise<T> => {
+    const result = record.configTail.then(operation)
+    record.configTail = result.then(() => undefined, () => undefined)
+    return result
+  }
+
+  const notifyConfigOptions = (record: SessionRecord): void => {
+    void queueConfig(record, async () => {
+      const options = await configOptions(record)
+      notify(record, { sessionUpdate: 'config_option_update', configOptions: options })
+    }).catch((error: unknown) => {
+      logger.warn(`acp-interactive: config option refresh failed: ${errorChain(error)}`)
+    })
+  }
+
+  const serializeConfig = <T>(record: SessionRecord, operation: () => Promise<T>): Promise<T> => {
+    record.configuring += 1
+    return queueConfig(record, operation).finally(() => {
+      record.configuring -= 1
+    })
+  }
 
   const drainDescendants = (parents: readonly Agent[]): Promise<void> => {
     const subagents = ctx.get('subagents') as ContinuableDrain | undefined
@@ -225,6 +310,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     const inflight = record.inflight
     if (inflight?.kind === 'command') await inflight.done
     await record.agent.whenIdle()
+    await record.configTail
     await record.outputTail
   }
 
@@ -279,6 +365,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         resumeSessionId: sessionId,
         agentOptions: agentOptions(config),
         signal: start.controller.signal,
+        setup: installSelection,
       })
       if (closed || start.controller.signal.aborted) {
         await handle.dispose()
@@ -310,6 +397,10 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     for (const record of sessions.values()) {
       if (!pendingCommandSnapshots.has(record.agent.session.id)) notifyCommands(record)
     }
+  })
+
+  ctx.on('llm/adapters-updated', () => {
+    for (const record of sessions.values()) notifyConfigOptions(record)
   })
 
   const settleAfterQuiescence = (record: SessionRecord, inflight: AgentInflight): void => {
@@ -391,7 +482,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     inflight: CommandInflight,
   ): Promise<PromptResponse> => {
     try {
-      const execution = await commands.execute(record.agent, text, inflight.controller.signal)
+      const execution = await commands.execute(record.agent, text, [], inflight.controller.signal)
       const rendered = execution === undefined
         ? `Error: unknown command: ${text}`
         : execution.result.kind === 'error'
@@ -427,7 +518,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         terminalOutputEnabled = params.clientCapabilities?._meta?.['terminal_output'] === true
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.2.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.3.0' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -462,6 +553,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             meta: { cwd: params.cwd },
             agentOptions: agentOptions(config),
             signal: start.controller.signal,
+            setup: installSelection,
           })
           /* v8 ignore next 4 -- a real stdio close can race the asynchronous agent factory. */
           if (closed) {
@@ -471,7 +563,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           const record = makeRecord(handle)
           sessions.set(sessionId, record)
           pendingCommandSnapshots.set(sessionId, record)
-          return { sessionId }
+          return { sessionId, configOptions: await serializeConfig(record, () => configOptions(record)) }
         } finally {
           /* v8 ignore next -- this exact operation owns the map entry until its finally block. */
           if (startingSessions.get(sessionId) === start) startingSessions.delete(sessionId)
@@ -512,17 +604,19 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
         const { record, events } = await resumeRecord(params, true)
+        const initialConfig = serializeConfig(record, () => configOptions(record))
         for (const update of replayHistory(record, events)) notify(record, update)
         notifyCommands(record)
-        await record.outputTail
-        return {}
+        const [options] = await Promise.all([initialConfig, record.outputTail])
+        return { configOptions: options }
       },
 
       async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
         const { record } = await resumeRecord(params, false)
+        const initialConfig = serializeConfig(record, () => configOptions(record))
         notifyCommands(record)
-        await record.outputTail
-        return {}
+        const [options] = await Promise.all([initialConfig, record.outputTail])
+        return { configOptions: options }
       },
 
       async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
@@ -542,9 +636,63 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         return {}
       },
 
+      setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+        assertOpen()
+        const record = requireSession(SessionId(params.sessionId))
+        return serializeConfig(record, async () => {
+          /* v8 ignore next -- a close racing after requireSession is a defensive cross-request guard. */
+          if (record.closing !== undefined) throw invalidParams(`session is closing: ${record.agent.session.id}`)
+          if (params.configId === MODEL_CONFIG_ID) {
+            if (typeof params.value !== 'string') throw invalidParams('model configuration requires a select value')
+            const available = await configOptions(record)
+            if (!hasModelValue(available, params.value)) throw invalidParams(`unknown model selection: ${params.value}`)
+            let route: { provider: string; model: string }
+            try {
+              route = decodeModelValue(params.value)
+            } catch (error: unknown) {
+              /* v8 ignore next -- advertised model values are emitted only by encodeModelValue(). */
+              throw invalidParams(error instanceof Error ? error.message : String(error))
+            }
+            try {
+              const resolved = await ctx.llm.resolveCallConfig(route)
+              record.selection.current = {
+                provider: resolved.provider,
+                model: resolved.model,
+                ...resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort },
+              }
+            } catch (error: unknown) {
+              throw invalidParams(`model is unavailable: ${errorChain(error)}`)
+            }
+          } else if (params.configId === PERMISSION_CONFIG_ID) {
+            if (typeof params.value !== 'string') throw invalidParams('permission configuration requires a select value')
+            const permissions = permissionDirectory(ctx)
+            if (permissions === undefined) throw invalidParams('permission configuration is unavailable')
+            if (!permissions.names.includes(params.value)) {
+              throw invalidParams(`unknown permission preset: ${params.value}`)
+            }
+            if (record.agent.status !== 'idle' || record.inflight !== undefined) {
+              throw invalidParams('permission configuration cannot change while the session is running')
+            }
+            const controller = new AbortController()
+            const execution = await commands.execute(
+              record.agent,
+              `/permission ${params.value}`,
+              [],
+              controller.signal,
+            )
+            if (execution === undefined) throw internalError('permission command is unavailable')
+            if (execution.result.kind === 'error') throw invalidParams(execution.result.text)
+          } else {
+            throw invalidParams(`unknown session configuration option: ${params.configId}`)
+          }
+          return { configOptions: await configOptions(record) }
+        })
+      },
+
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const record = requireSession(SessionId(params.sessionId))
+        if (record.configuring > 0) throw invalidParams('a session configuration change is in flight')
         if (record.inflight !== undefined) throw invalidParams('a prompt is already in flight for this session')
         let content: ContentBlock[]
         try {
@@ -565,7 +713,9 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             finish: () => { completed.resolve() },
           }
           record.inflight = inflight
-          return runCommand(record, text, inflight)
+          const response = await runCommand(record, text, inflight)
+          notifyConfigOptions(record)
+          return response
         }
 
         if (agents.get(record.agent.id) !== record.agent) {
