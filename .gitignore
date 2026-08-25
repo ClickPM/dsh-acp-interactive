@@ -1,0 +1,8 @@
+node_modules/
+lib/
+.npm-cache/
+*.log
+.DS_Store
+*.tgz
+*.zip
+SHA256SUMS.txt
