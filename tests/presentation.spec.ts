@@ -18,9 +18,9 @@ describe('interactive ACP tool presentation', () => {
     const presenter = new ToolPresenter(registry({
       presentCall: () => ({
         card: 'diff',
-        title: 'Edit C:\\work\\src\\a.ts',
-        diffs: [{ path: 'C:\\work\\src\\a.ts', oldText: 'old', newText: 'new' }],
-        locations: [{ path: 'C:\\work\\src\\a.ts' }],
+        title: 'Edit C:\\work\\src\\a.js',
+        diffs: [{ path: 'C:\\work\\src\\a.js', oldText: 'old', newText: 'new' }],
+        locations: [{ path: 'C:\\work\\src\\a.js' }],
       }),
     }), () => {}, agent)
     const view = presenter.call('c1', 'edit', '{}')
@@ -28,8 +28,8 @@ describe('interactive ACP tool presentation', () => {
       sessionUpdate: 'tool_call',
       toolCallId: 'c1',
       kind: 'edit',
-      locations: [{ path: 'C:\\work\\src\\a.ts' }],
-      content: [{ type: 'diff', path: 'C:\\work\\src\\a.ts', oldText: 'old', newText: 'new' }],
+      locations: [{ path: 'C:\\work\\src\\a.js' }],
+      content: [{ type: 'diff', path: 'C:\\work\\src\\a.js', oldText: 'old', newText: 'new' }],
     })
   })
 
@@ -102,7 +102,7 @@ describe('interactive ACP tool presentation', () => {
     }
 
     expect(resolve('generic')).toEqual({ card: 'generic', content: text('raw') })
-    nextResult = { card: 'read', path: 'a.ts', offset: 4, lines: [], totalLines: 0 }
+    nextResult = { card: 'read', path: 'a.js', offset: 4, lines: [], totalLines: 0 }
     expect(resolve('read')).toMatchObject({ card: 'read', content: text('raw') })
     nextResult = { card: 'search', shape: 'paths', title: 'Search', paths: [], truncated: false, total: 0 }
     expect(resolve('search')).toEqual({ card: 'generic', title: 'Search', content: text('raw') })
@@ -128,20 +128,20 @@ describe('interactive ACP tool presentation', () => {
   it('projects complete and minimal generic calls', () => {
     expect(projectToolCall('g1', {
       card: 'generic',
-      title: 'Read C:\\work\\src\\a.ts',
+      title: 'Read C:\\work\\src\\a.js',
       kind: 'read',
-      rawInput: { path: 'a.ts' },
+      rawInput: { path: 'a.js' },
       content: [...text('pending'), { type: 'reasoning', text: 'hidden' }],
-      locations: [{ path: 'C:\\work\\src\\a.ts', line: 2 }],
+      locations: [{ path: 'C:\\work\\src\\a.js', line: 2 }],
     }, { enabled: false, cwd: 'C:\\work' })).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: 'g1',
-      title: 'Read src\\a.ts',
+      title: 'Read src\\a.js',
       kind: 'read',
       status: 'in_progress',
-      rawInput: { path: 'a.ts' },
+      rawInput: { path: 'a.js' },
       content: [{ type: 'content', content: { type: 'text', text: 'pending' } }],
-      locations: [{ path: 'C:\\work\\src\\a.ts', line: 2 }],
+      locations: [{ path: 'C:\\work\\src\\a.js', line: 2 }],
     })
     expect(projectToolCall('g2', { card: 'generic', title: 'Plain' }, { enabled: false, cwd: undefined }))
       .toEqual({
@@ -151,18 +151,18 @@ describe('interactive ACP tool presentation', () => {
 
   it('projects minimal diff calls and keeps titles for paths outside the workspace', () => {
     expect(projectToolCall('d1', {
-      card: 'diff', title: 'Edit C:\\other\\a.ts', diffs: [],
+      card: 'diff', title: 'Edit C:\\other\\a.js', diffs: [],
     }, { enabled: false, cwd: 'C:\\work' })).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: 'd1',
-      title: 'Edit C:\\other\\a.ts',
+      title: 'Edit C:\\other\\a.js',
       kind: 'edit',
       status: 'in_progress',
     })
     expect(projectToolCall('d2', {
-      card: 'diff', title: 'Edit a.ts', diffs: [{ path: 'a.ts', oldText: null, newText: 'new' }], locations: [],
+      card: 'diff', title: 'Edit a.js', diffs: [{ path: 'a.js', oldText: null, newText: 'new' }], locations: [],
     }, { enabled: false, cwd: 'C:\\work' })).toMatchObject({
-      content: [{ type: 'diff', path: 'a.ts', oldText: null, newText: 'new' }],
+      content: [{ type: 'diff', path: 'a.js', oldText: null, newText: 'new' }],
       locations: [],
     })
   })
@@ -206,8 +206,8 @@ describe('interactive ACP tool presentation', () => {
       sessionUpdate: 'tool_call_update', toolCallId: 'g2', status: 'completed',
     })
     expect(projectToolResult('r', {
-      card: 'read', path: 'src/a.ts', offset: 3, lines: [], totalLines: 10, content: text('line'),
-    }, false, terminal)).toMatchObject({ locations: [{ path: 'src/a.ts', line: 3 }], content: [{ type: 'content' }] })
+      card: 'read', path: 'src/a.js', offset: 3, lines: [], totalLines: 10, content: text('line'),
+    }, false, terminal)).toMatchObject({ locations: [{ path: 'src/a.js', line: 3 }], content: [{ type: 'content' }] })
     expect(projectToolResult('s', {
       card: 'search', shape: 'paths', title: 'Found', paths: [], truncated: false, total: 0,
     }, false, terminal)).toMatchObject({ title: 'Found' })
@@ -218,9 +218,9 @@ describe('interactive ACP tool presentation', () => {
 
   it('projects completed diffs with optional title and content', () => {
     expect(projectToolResult('d1', {
-      card: 'diff', title: 'Edit C:\\work\\a.ts', diffs: [{ path: 'C:\\work\\a.ts', oldText: 'a', newText: 'b' }],
+      card: 'diff', title: 'Edit C:\\work\\a.js', diffs: [{ path: 'C:\\work\\a.js', oldText: 'a', newText: 'b' }],
     }, false, { enabled: false, cwd: 'C:\\work' })).toMatchObject({
-      title: 'Edit a.ts', content: [{ type: 'diff', path: 'C:\\work\\a.ts' }],
+      title: 'Edit a.js', content: [{ type: 'diff', path: 'C:\\work\\a.js' }],
     })
     expect(projectToolResult('d2', { card: 'diff', diffs: [] }, false, { enabled: false, cwd: undefined }))
       .toEqual({ sessionUpdate: 'tool_call_update', toolCallId: 'd2', status: 'completed' })

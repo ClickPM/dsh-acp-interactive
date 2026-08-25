@@ -2,7 +2,7 @@
 
 ## 目标
 
-`dsh-acp-interactive` 是独立的 Cordis 插件，让 Zed 通过 Agent Client Protocol（ACP）获得接近 Codex ACP 和 Claude ACP 的交互体验。Zed 负责会话界面、流式内容、工具卡片、审批控件和计划展示；DeepSeek Harness（dsh）继续负责模型调用、agent loop、工具执行、工作目录、沙箱、权限策略和生命周期。
+提供一个独立的 `dsh-acp-interactive` Cordis 插件，让 Zed 通过 Agent Client Protocol（ACP）获得接近 Codex ACP 和 Claude ACP 的交互体验。Zed 负责会话界面、流式内容、工具卡片、审批控件和计划展示；DeepSeek Harness（dsh）继续负责模型调用、agent loop、工具执行、工作目录、沙箱、权限策略和生命周期。
 
 这不是 Codex 插件，也不是 Zed 扩展。协议适配器作为 dsh 插件运行，通过 JSON-RPC stdio 与 Zed 通信。
 
@@ -62,22 +62,39 @@ dsh agent loop -> DeepSeek provider
 - `session/load` 先校验持久会话及其 cwd，再通过 `ctx.agents.resume()` 恢复 agent，并重放已组装的用户／assistant 消息、reasoning、工具卡片、最后的 plan、标题、用量和命令目录；
 - `session/resume` 恢复相同的 dsh 上下文，但不重放历史，只发送当前命令目录；
 - `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和 continuable 后代完全停稳，再释放精确归属的 `AgentHandle`；
-- 恢复历史包含 ACP 无法无损表示的丰富内容时明确失败，不会静默丢弃内容。
+- 恢复历史包含 ACP 无法无损表示的丰富内容时明确失败，不会静默丢弃内容；
+- 示例组合加入 JSONL persistence、checkpoint policy 和每进程内存 SQLite session query，并由真实 Loader 快照覆盖 list/load；并发编辑器 server 只共享 JSONL 真源，不共享单 owner 的派生索引。
 
 本阶段不声明 `session/delete`。`SessionPersistence` 尚未提供跨后端删除操作；transport 直接删除 JSONL 文件或修改 SQLite 私有表会绕过持久化所有权与对账。`session/list` 目前返回完整单页且不伪造 `updatedAt`，稳定 cursor 和低成本最后活动时间由 session-query 能力提供后再接入。
 
 ## 第三阶段
 
-第三阶段提供模型与权限 config selector：
+第三阶段交付 ACP session config options 形式的模型与权限控制：
 
-- 模型 selector 从 LLM provider 目录生成完整 provider/model route，并在下一次 prompt assembly 生效；
-- 恢复会话保留日志中最后使用的 route，即使 provider 目录不再公布该模型；
-- 权限 selector 复用 `/permission` 命令切换 preset，使 sandbox、审批策略与持久事件保持一致；
-- 同一 session 的配置切换串行执行，运行中的权限切换和跨越未完成切换的 prompt 会被拒绝。
+- `session/new`、`session/load` 和 `session/resume` 返回完整 `configOptions`，模型按 provider 分组，权限来自 `ctx.permissionPresets` 的部署配置；
+- `session/set_config_option` 的模型值编码完整 provider/model route，只接受当前目录公布的值，并通过 agent-scoped model selection 在下一次 prompt assembly 生效；
+- 恢复会话以最后一条 `request/header` 的 route 作为当前模型；目录不再公布该 route 时仍显示一个 current-only 选项，不会把历史选择改写成默认值；
+- 权限 selector 复用 `/permission` 的唯一在线写路径，把 preset、sandbox mode 和 approval policy 一起持久化；运行中的 session 拒绝切换，避免正在执行的工具跨越两套策略；
+- LLM adapter topology 变化后发送完整 `config_option_update`，直接执行 `/permission` 后也刷新 selector；
+- selector 请求按 session 串行化，prompt 不会越过尚未结算的配置切换。
+
+本阶段不增加独立 reasoning-effort selector。选择模型时采用 adapter 为该模型解析出的默认 effort。
+
+## 第四阶段
+
+第四阶段补齐编辑器内的协作与丰富输入：
+
+- 组合 `ctx.planMode` 时，`session/new`、`session/load` 和 `session/resume` 返回原生 ACP `default`／`plan` modes，`session/set_mode` 委托标准 plan-mode 服务，`plan/mode` 事件发布 `current_mode_update`；
+- 所选精确模型公布 reasoning efforts 时增加 `thought_level` selector，切换在下一次 prompt assembly 生效，切换模型清除显式 effort 并采用新 route 默认值，恢复会话保留最后 request header 中的精确 effort；
+- baseline `resource_link` 变成持久用户消息中的明确引用；组合 attachment store 后公布 inline image 能力，图片在消息排队前校验模型 route、批量持久化并替换为 durable reference，加载历史时重新校验并投影图片字节；
+- 组合 `ctx.userQuestions` 后，为本连接精确拥有的根 agent 注册 ACP form elicitation provider，结构化投影普通问题、多选、自由文本和 plan-review detail，并区分用户关闭与 turn 取消；
+- 示例组合加入 attachment store、plan mode、user-questions 与 `ask_user_question` consumer，并公布可选 vision route。
+
+本阶段仍不接入 MCP server 与 additional directories。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应 unstable ACP capability 时启用。
 
 ## 后续阶段
 
-后续阶段包括 plan/default mode、reasoning-effort 选择、图片与 resource link、用户问题 elicitation、MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用不稳定 ACP 扩展。
+后续阶段包括 MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用其他不稳定 ACP 扩展。
 
 ## Zed 连接方式
 
@@ -119,3 +136,22 @@ dsh agent loop -> DeepSeek provider
 3. `session/resume` 恢复模型上下文但不重复发送历史。
 4. `session/close` 在 prompt、斜杠命令、恢复中、连接断开及并发关闭场景下都能达到完全停稳，且不会释放其他连接拥有的 agent。
 5. 无法无损投影的持久内容和不受支持的分页 cursor 明确失败。
+6. 真实 Loader 组合能在新进程中列出并加载磁盘上的 JSONL 会话。
+
+## 第三阶段验收
+
+1. Zed 新建、加载或恢复 session 后能看到按 provider 分组的模型和当前权限 preset。
+2. 模型切换只影响下一次进入 prompt assembly 的 step，运行中的 step 保持已组装 route。
+3. 未公布的模型值、未知权限 preset 和未知 config id 明确失败，不改变当前选择。
+4. 权限切换写入 preset、sandbox mode 和 approval policy 的标准 session 事件，运行中的 session 不允许切换。
+5. 多个 session 的模型选择、权限选择和串行化队列互相隔离。
+6. 真实 Loader 快照覆盖新建与加载响应中的完整 config options。
+
+## 第四阶段验收
+
+1. Zed 新建、加载和恢复 session 后能看到 `default`／`plan` mode，切换只通过 `ctx.planMode` 生效且日志事件会刷新当前 mode。
+2. 支持 reasoning effort 的模型显示 `thought_level` selector；effort 切换影响下一次 step，模型切换重置显式 effort，恢复保留已记录 effort。
+3. Resource link 作为明确引用进入模型历史；inline 图片只在 attachment store 和精确 route 都支持时准入，取消不会排入迟到消息，持久历史能重放图片。
+4. `ask_user_question` 与 plan review 通过 ACP form elicitation 往返选项、多选与自由文本；外部 agent、不支持 elicitation 的客户端、关闭和取消都明确失败。
+5. 多个 session 的 mode、effort、图片准入和 elicitation 不串流，连接拆卸会注销 provider 并等待正在进行的准入静止。
+6. 真实 Loader 快照覆盖 modes、reasoning selector、图片能力、plan 与 ask 命令目录、`session/set_mode` 更新，以及一次经 ACP form elicitation 完成的两步模型／工具往返。

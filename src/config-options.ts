@@ -10,11 +10,80 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 
 /** ACP config id for the provider/model selector. */
 export const MODEL_CONFIG_ID = 'model'
+/** ACP config id for the exact route's reasoning-effort selector. */
+export const REASONING_CONFIG_ID = 'reasoning_effort'
 /** ACP config id for the sandbox/approval preset selector. */
 export const PERMISSION_CONFIG_ID = 'permission'
+/** Selector value that restores adapter/provider default reasoning behavior. */
+export const DEFAULT_REASONING_VALUE = 'default'
+
+/**
+ * Encode an adapter-owned effort id without colliding with the default row.
+ * @param value - adapter-owned reasoning effort id.
+ * @returns reversible ACP selector value.
+ */
+export function encodeReasoningValue(value: string): string {
+  return `effort:${encodeURIComponent(value)}`
+}
+
+/**
+ * Decode one advertised reasoning selector value.
+ * @param value - ACP selector value.
+ * @returns adapter-owned effort id, or undefined for the route default.
+ */
+export function decodeReasoningValue(value: string): ReturnType<typeof ReasoningEffortId> | undefined {
+  if (value === DEFAULT_REASONING_VALUE) return undefined
+  if (!value.startsWith('effort:') || value.length === 'effort:'.length) {
+    throw new Error('reasoning value must identify an advertised effort or the route default')
+  }
+  try {
+    return ReasoningEffortId(decodeURIComponent(value.slice('effort:'.length)))
+  } catch (error: unknown) {
+    throw new Error('reasoning value contains invalid encoding', { cause: error })
+  }
+}
+
+/** Build the exact route's reasoning selector, retaining a restored effort the current catalog omits. */
+function reasoningConfigOption(
+  selection: ModelSelection,
+  advertised: readonly { id: ReturnType<typeof ReasoningEffortId>; name: string; description?: string }[],
+): Extract<SessionConfigOption, { type: 'select' }> {
+  const reasoningOptions = [
+    {
+      value: DEFAULT_REASONING_VALUE,
+      name: 'Default',
+      description: 'Use the adapter or provider default for this model.',
+    },
+    ...advertised.map(effort => ({
+      value: encodeReasoningValue(effort.id),
+      name: effort.name,
+      ...effort.description === undefined ? {} : { description: effort.description },
+    })),
+  ]
+  const currentValue = selection.reasoningEffort === undefined
+    ? DEFAULT_REASONING_VALUE
+    : encodeReasoningValue(selection.reasoningEffort)
+  if (!reasoningOptions.some(option => option.value === currentValue)) {
+    reasoningOptions.push({
+      value: currentValue,
+      name: selection.reasoningEffort as string,
+      description: 'Current effort; the model no longer advertises this value.',
+    })
+  }
+  return {
+    type: 'select',
+    id: REASONING_CONFIG_ID,
+    name: 'Reasoning effort',
+    description: 'Reasoning effort used by the next step that enters prompt assembly.',
+    category: 'thought_level',
+    currentValue,
+    options: reasoningOptions,
+  }
+}
 
 /** Read face of the optional permission-presets service used by this transport. */
 export interface PermissionPresetDirectory {
@@ -123,6 +192,18 @@ export async function sessionConfigOptions(
       currentValue,
       options: groups,
     })
+
+    try {
+      const model = await ctx.llm.resolveModelInfo(selection.provider, selection.model)
+      if (model.reasoning !== undefined) {
+        options.push(reasoningConfigOption(selection, model.reasoning.efforts))
+      } else if (selection.reasoningEffort !== undefined) {
+        options.push(reasoningConfigOption(selection, []))
+      }
+    } catch (error: unknown) {
+      ctx.logger.warn(`acp-interactive: reasoning catalog unavailable for ${selection.provider}/${selection.model}: ${String(error)}`)
+      if (selection.reasoningEffort !== undefined) options.push(reasoningConfigOption(selection, []))
+    }
   }
 
   const permissions = permissionDirectory(ctx)
@@ -150,6 +231,18 @@ export async function sessionConfigOptions(
     })
   }
   return options
+}
+
+/**
+ * Whether a value belongs to the current reasoning selector.
+ * @param options - complete ACP configuration list.
+ * @param value - untrusted selector value received from the client.
+ * @returns true only when the reasoning selector advertises the value.
+ */
+export function hasReasoningValue(options: readonly SessionConfigOption[], value: string): boolean {
+  const reasoning = options.find(option => option.id === REASONING_CONFIG_ID)
+  return reasoning?.type === 'select'
+    && reasoning.options.some(option => !('group' in option) && option.value === value)
 }
 
 /**

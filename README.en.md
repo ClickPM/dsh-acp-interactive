@@ -6,9 +6,27 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package is a UI transport plugin. The agent loop, model provider, tools, sandbox, subprocesses, and approval policy remain in the surrounding Cordis composition. This UI bridge is separate from the upstream automation-only ACP transport.
 
+## Installation
+
+Before an npm release, install directly from GitHub and pin an audited commit:
+
+```sh
+npm install github:cking000bigdemon/dsh-acp-interactive#<sha>
+```
+
+GitHub installation runs this package's `prepare` build. Put the plugin in a dedicated ACP stdio composition, not an ordinary console profile, because stdout carries JSON-RPC frames only:
+
+```yaml
+- id: acp-interactive
+  name: 'dsh-acp-interactive'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-pro
+```
+
 ## Plugin
 
-`apply(ctx, config)` requires `agents`, `commands`, `llm`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; model selection remains available without it.
+`apply(ctx, config)` requires `agents`, `commands`, `llm`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
 
 | Config | Meaning |
 |---|---|
@@ -23,15 +41,21 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 `session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
-`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels in-flight model or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
+`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, model, or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
 
-Text prompts and direct slash commands are supported. Images, resource links, audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Restored history containing rich human, assistant, or tool-result blocks also fails instead of dropping content. Modes and elicitation remain later phases.
+Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Direct slash commands remain text-only.
+
+When `ctx.planMode` is composed, new, loaded, and resumed sessions advertise `default` and `plan` modes. `session/set_mode` delegates to that service, and committed `plan/mode` events publish `current_mode_update`; the transport keeps no separate mode state.
+
+When `ctx.userQuestions` is composed, the plugin registers a provider for its exact owned root agents. Clients advertising unstable ACP form elicitation receive structured questions, choices, multi-select fields, optional free text, and plan-review detail. Decline or dismissal returns `ASK_CANCELLED`, turn cancellation returns `ASK_ABORTED`, and clients without form elicitation fail explicitly.
 
 ## Session configuration
 
-`session/new`, `session/load`, and `session/resume` return the complete ACP `configOptions`. The model selector groups adapter model catalogs by provider and encodes the complete provider/model route. A selected route applies at the next prompt-assembly boundary; a restored session uses its latest logged request header. Client values absent from the advertised options are rejected.
+`session/new`, `session/load`, and `session/resume` return the complete ACP `configOptions` list. The model selector groups each adapter's advisory catalog by provider and encodes the complete provider/model route in each value. The selected route applies at the next prompt-assembly boundary; a step already assembling or running keeps its captured route. Restored sessions use the latest logged request header, and an unadvertised restored route remains a current-only row instead of being replaced by the composition default. Client values not present in the current directory are rejected.
 
-When `permissionPresets` is composed, a permission selector lists its presets. Switching reuses the existing `/permission` command, keeping the sandbox mode, approval policy, and durable events aligned. A running session refuses permission changes. Configuration requests are serialized per session, and prompts cannot pass an unsettled switch. The selector does not expose a separate reasoning-effort control yet.
+When the selected model advertises reasoning efforts, a `thought_level` selector exposes `Default` plus every adapter-owned effort. The selected value applies at the next prompt-assembly boundary. Switching models resets the explicit effort to the new route's default; restored sessions recover the effort from the latest request header, including a current-only historical value when its catalog row or all reasoning metadata is unavailable.
+
+When `ctx.permissionPresets` is composed, a permission selector exposes its configured presets. A switch executes the existing `/permission` write path, so the preset, sandbox mode, approval policy, live approval state, and durable events stay aligned. A running session refuses permission changes. Configuration requests are serialized per session, and a prompt cannot pass an unsettled switch. Adapter topology changes and direct `/permission` commands publish a full `config_option_update`.
 
 ## Tool execution and permissions
 
@@ -39,30 +63,32 @@ ACP never executes a dsh tool. A tool call stays inside the harness and uses its
 
 The Zed terminal extension is capability-gated. When the client advertises `_meta.terminal_output`, a terminal render intent produces terminal metadata and captured output. Other clients receive a fenced console fallback. File paths in locations and diffs stay unchanged so editor follow-along opens the operated file.
 
-## Connecting Zed
+## Running with Zed
 
-This repository publishes the bridge as the Cordis entry `dsh-acp-interactive`. Put that entry in a dedicated ACP composition with session-persistence and session-query providers; do not add it to an ordinary console profile because stdout carries JSON-RPC frames only.
+The verified source launch uses the DeepSeek Harness checkout and its `examples/acp-interactive-agent/cordis.yml` composition. From that checkout, `pnpm run demo:acp:interactive` boots the server. The example stores JSONL sessions under `./.sessions`, uses one disposable in-memory SQLite session-query index per server process, checkpoints durable work before effects, and composes the standard workspace-write/full-access permission presets. Multiple editor server processes may share the JSONL root without sharing the single-owner derived index. Register that command in Zed:
 
-The currently verified Windows launch uses the DeepSeek Harness source checkout and its interactive ACP example. In Zed, open `Settings > AI > General > External Agents > Add Custom Agent` and fill the form:
-
-| Field | Value |
-|---|---|
-| Agent Name | `DeepSeek Harness` |
-| Command | `C:\\Program Files\\nodejs\\node.exe` |
-| Arguments | `--import=file:///D:/variFlight_work/deepseek-harness/node_modules/tsx/dist/loader.mjs D:/variFlight_work/deepseek-harness/packages/examples/acp-demo/src/bin.ts --config D:/variFlight_work/deepseek-harness/examples/acp-interactive-agent/cordis.yml` |
-| Environment Variables | `DEEPSEEK_API_KEY` with your key as the value |
-
-The command and all arguments go into their separate Zed form fields exactly as shown. This package contains the plugin, not a standalone ACP launcher; the verified command above still boots the harness source composition. A composition consuming this repository selects the plugin with:
-
-```yaml
-- id: acp-interactive
-  name: 'dsh-acp-interactive'
-  config:
-    provider: deepseek-official
-    model: deepseek-v4-pro
+```json
+{
+  "agent_servers": {
+    "DeepSeek Harness": {
+      "type": "custom",
+      "command": "pnpm.cmd",
+      "args": ["--dir", "D:/path/to/deepseek-harness", "run", "demo:acp:interactive"]
+    }
+  }
+}
 ```
 
-No DeepSeek-specific Zed code is required. Zed only needs custom ACP agent support. Official integration is useful for Registry distribution and future extensions, but is not required for this connection.
+No DeepSeek-specific Zed code is required. The editor only needs support for custom ACP agent servers; Registry packaging and future protocol extensions may still benefit from upstream integration.
+
+An explicitly configured image-capable model must declare its input modalities. For example:
+
+```yaml
+- id: deepseek-v4-flash-vision-exp
+  inputModalities: [text, image]
+```
+
+Without this metadata, the DeepSeek adapter treats that explicit catalog entry as text-only and the bridge rejects image admission before queuing the prompt.
 
 ## Model Experience
 
@@ -94,14 +120,40 @@ The ACP updates add no model tokens. Tool results retain their ordinary dsh mode
 
 The UI projection does not affect reuse. A tool result appends through the standard session surface and has that path's ordinary cache effect.
 
-### Model and permission selectors
+### Model, reasoning, mode, and permission controls
 
-Selector metadata and switching traffic are client-only. A model selection changes the provider/model logged by the next request. A permission selection changes later tool execution and any permission text owned by the surrounding sandbox and approval plugins. The selectors themselves add no model tokens.
+#### What the model sees
+
+Selector and mode metadata are client-only. Model and reasoning selections change the route fields logged by the next assembled request. Plan mode changes the standard plan guidance and exit tool behavior through `ctx.planMode`. A permission selection changes later tool execution and any standard permission narration owned by the sandbox and approval plugins.
+
+#### Token effect
+
+The controls add no model tokens themselves. A selected route and effort have that model's ordinary token behavior; plan mode adds its configured guidance; a permission preset has only the token effect of its existing policy projection.
+
+#### KV Cache effect
+
+Changing provider or model starts using that route's cache identity on the next request. Changing reasoning effort or plan guidance changes the request and therefore its reusable prefix. Permission selection follows the existing sandbox/approval projection behavior and does not add ACP traffic to the prompt.
 
 ## Known Limitations and Deferred Work
 
 - `session/delete` is not advertised. The persistence Service Definition has no backend-independent deletion method; direct JSONL or SQLite manipulation in this transport would bypass persistence ownership and reconciliation.
 - `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
-- Prompt input is text-only; richer ACP blocks fail instead of degrading silently.
-- Collaboration modes, reasoning-effort selection, user-question elicitation, MCP servers, and additional directories are deferred.
+- Audio and embedded-resource prompt blocks fail instead of degrading silently. Tool-result image cards remain text-only even though prompt and message-history images are supported.
+- ACP form elicitation is unstable protocol and is available only when the client advertises it.
+- MCP servers and additional directories are deferred.
 - Terminal output is delivered at tool completion rather than incrementally.
+
+## Development
+
+```sh
+npm install
+npm test
+npm run typecheck
+npm run build
+```
+
+See the [design document](docs/design.md) for the phased scope.
+
+## License
+
+[MIT](LICENSE)

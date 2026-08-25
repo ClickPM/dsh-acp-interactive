@@ -6,6 +6,8 @@ import {
   ndJsonStream,
   type Agent as AcpAgent,
   type Client,
+  type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
   type SessionNotification,
@@ -125,6 +127,8 @@ class MockAdapter extends LlmAdapter {
       id: model,
       name: model,
       context: { contextWindow: 128_000 },
+      inputModalities: ['text', 'image'],
+      reasoning: { efforts: [{ id: 'high' as never, name: 'High' }] },
     })
   }
 
@@ -203,8 +207,10 @@ export interface BridgeHarness {
   client: ClientSideConnection
   updates: Array<{ sessionId: string; update: SessionNotification['update'] }>
   permissionRequests: RequestPermissionRequest[]
+  elicitationRequests: CreateElicitationRequest[]
   persisted: Map<SessionId, PersistedEntry>
   onPermission: (request: RequestPermissionRequest) => RequestPermissionResponse
+  onElicitation: (request: CreateElicitationRequest) => CreateElicitationResponse
   onSessionUpdateError: (() => void) | undefined
   closeClientTransport(): Promise<void>
   abortClientTransport(): Promise<void>
@@ -242,14 +248,17 @@ export async function makeHarness(
   const clientStream: Stream = ndJsonStream(clientOutput, agentToClient.readable)
   const updates: BridgeHarness['updates'] = []
   const permissionRequests: RequestPermissionRequest[] = []
+  const elicitationRequests: CreateElicitationRequest[] = []
   const harness: BridgeHarness = {
     ctx,
     adapter,
     client: undefined as unknown as ClientSideConnection,
     updates,
     permissionRequests,
+    elicitationRequests,
     persisted,
     onPermission: () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } }),
+    onElicitation: () => ({ action: 'accept', content: {} }),
     onSessionUpdateError: undefined,
     closeClientTransport: () => clientToAgentWriter.close(),
     abortClientTransport: () => clientToAgentWriter.abort(new Error('client transport failed')),
@@ -266,6 +275,10 @@ export async function makeHarness(
     requestPermission(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
       permissionRequests.push(request)
       return Promise.resolve(harness.onPermission(request))
+    },
+    unstable_createElicitation(request: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+      elicitationRequests.push(request)
+      return Promise.resolve(harness.onElicitation(request))
     },
   })
 

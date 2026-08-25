@@ -36,9 +36,12 @@ import {
   type ResumeSessionRequest,
   type ResumeSessionResponse,
   type SessionConfigOption,
+  type SessionModeState,
   type SessionNotification,
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
+  type SetSessionModeRequest,
+  type SetSessionModeResponse,
   type StopReason,
   type Stream,
 } from '@agentclientprotocol/sdk'
@@ -53,21 +56,34 @@ import { createUserMessage, errorChain, type ContentBlock, type TokenUsage } fro
 import { SessionId, type SessionEvent, type TodoItem, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Declaration merges for the plugin-owned events and services projected below.
 import type {} from '@deepseek-ai/dsh-commands'
+import type {} from '@deepseek-ai/dsh-attachment'
+import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-user-approval'
+import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
-import { admitTextPrompt, admittedText, InteractivePromptError } from './content.js'
+import { admitPrompt, admittedCommandText, InteractivePromptError, projectImage } from './content.js'
 import { turnEndToStopReason } from './codec.js'
 import {
   decodeModelValue,
+  decodeReasoningValue,
   hasModelValue,
+  hasReasoningValue,
   MODEL_CONFIG_ID,
   PERMISSION_CONFIG_ID,
+  REASONING_CONFIG_ID,
   permissionDirectory,
   sessionConfigOptions,
 } from './config-options.js'
+import { acpQuestionProvider } from './elicitation.js'
+import {
+  DEFAULT_MODE_ID,
+  PLAN_MODE_ID,
+  planModeDirectory,
+  sessionModes,
+} from './modes.js'
 import {
   projectToolCall,
   projectToolResult,
@@ -115,6 +131,14 @@ interface CommandInflight {
   finish: () => void
 }
 
+interface AdmissionInflight {
+  kind: 'admission'
+  controller: AbortController
+  cancelRequested: boolean
+  done: Promise<void>
+  finish: () => void
+}
+
 interface UsageState {
   size: number | undefined
   used: number
@@ -129,10 +153,11 @@ interface SessionRecord {
   terminal: TerminalRendering
   outputTail: Promise<void>
   usage: UsageState
-  inflight: AgentInflight | CommandInflight | undefined
+  inflight: AgentInflight | CommandInflight | AdmissionInflight | undefined
   closing: Promise<void> | undefined
   configTail: Promise<void>
   configuring: number
+  mode: string | undefined
 }
 
 interface StartOperation {
@@ -162,6 +187,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const selections = new WeakMap<Agent, ModelSelectionRef>()
   let closed = false
   let terminalOutputEnabled = false
+  let imagePromptEnabled = false
+  let elicitationEnabled = false
   let conn: AgentSideConnection
   let drainTail = Promise.resolve()
 
@@ -188,6 +215,23 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     }))
     record.outputTail = delivery.catch((error: unknown) => {
       logger.warn(`acp-interactive: session/update failed: ${String(error)}`)
+    })
+  }
+
+  const notifyImage = (
+    record: SessionRecord,
+    sessionUpdate: 'agent_message_chunk' | 'user_message_chunk',
+    block: Extract<ContentBlock, { type: 'image' }>,
+  ): void => {
+    const delivery = record.outputTail.then(async () => {
+      const content = await projectImage(ctx, block.attachment)
+      await conn.sessionUpdate({
+        sessionId: record.agent.session.id,
+        update: { sessionUpdate, content },
+      })
+    })
+    record.outputTail = delivery.catch((error: unknown) => {
+      logger.warn(`acp-interactive: image projection failed: ${errorChain(error)}`)
     })
   }
 
@@ -257,10 +301,23 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     closing: undefined,
     configTail: Promise.resolve(),
     configuring: 0,
+    mode: undefined,
   })
 
   const configOptions = (record: SessionRecord): Promise<SessionConfigOption[]> =>
     sessionConfigOptions(ctx, record.agent, record.selection.current)
+
+  const modeState = (record: SessionRecord): SessionModeState | undefined => {
+    const modes = sessionModes(ctx, record.agent)
+    if (modes !== undefined) record.mode = modes.currentModeId
+    return modes
+  }
+
+  const notifyMode = (record: SessionRecord, currentModeId: string): void => {
+    if (record.mode === currentModeId) return
+    record.mode = currentModeId
+    notify(record, { sessionUpdate: 'current_mode_update', currentModeId })
+  }
 
   const queueConfig = <T>(record: SessionRecord, operation: () => Promise<T>): Promise<T> => {
     const result = record.configTail.then(operation)
@@ -296,7 +353,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
   const cancelRecord = (record: SessionRecord, reason: Error): void => {
     const inflight = record.inflight
-    if (inflight?.kind === 'command') {
+    if (inflight?.kind === 'admission' || inflight?.kind === 'command') {
       inflight.cancelRequested = true
       inflight.controller.abort(reason)
     } else if (inflight?.kind === 'agent') {
@@ -308,7 +365,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
   const awaitRecordIdle = async (record: SessionRecord): Promise<void> => {
     const inflight = record.inflight
-    if (inflight?.kind === 'command') await inflight.done
+    if (inflight?.kind === 'admission' || inflight?.kind === 'command') await inflight.done
     await record.agent.whenIdle()
     await record.configTail
     await record.outputTail
@@ -436,6 +493,14 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     if (record === undefined || record.agent.session !== session) return
     try {
       for (const update of projectEvent(record, event)) notify(record, update)
+      if (event.type === 'assistant/message') {
+        for (const block of event.data.message.content) {
+          if (block.type === 'image') notifyImage(record, 'agent_message_chunk', block)
+        }
+      }
+      if (event.type === 'plan/mode') {
+        notifyMode(record, event.data.active ? PLAN_MODE_ID : DEFAULT_MODE_ID)
+      }
     } catch (error: unknown) {
       logger.warn(`acp-interactive: event projection failed: ${errorChain(error)}`)
     } finally {
@@ -516,12 +581,15 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     return {
       initialize(params: InitializeRequest): Promise<InitializeResponse> {
         terminalOutputEnabled = params.clientCapabilities?._meta?.['terminal_output'] === true
+        imagePromptEnabled = ctx.get('attachments') !== undefined
+        elicitationEnabled = params.clientCapabilities?.elicitation?.form !== undefined
+          && params.clientCapabilities.elicitation.form !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.3.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.1.0' },
           agentCapabilities: {
             loadSession: true,
-            promptCapabilities: { image: false, audio: false, embeddedContext: false },
+            promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
             sessionCapabilities: {
               list: {},
               resume: {},
@@ -563,7 +631,12 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           const record = makeRecord(handle)
           sessions.set(sessionId, record)
           pendingCommandSnapshots.set(sessionId, record)
-          return { sessionId, configOptions: await serializeConfig(record, () => configOptions(record)) }
+          const modes = modeState(record)
+          return {
+            sessionId,
+            configOptions: await serializeConfig(record, () => configOptions(record)),
+            ...modes === undefined ? {} : { modes },
+          }
         } finally {
           /* v8 ignore next -- this exact operation owns the map entry until its finally block. */
           if (startingSessions.get(sessionId) === start) startingSessions.delete(sessionId)
@@ -604,11 +677,17 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
       async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
         const { record, events } = await resumeRecord(params, true)
-        const initialConfig = serializeConfig(record, () => configOptions(record))
-        for (const update of replayHistory(record, events)) notify(record, update)
-        notifyCommands(record)
-        const [options] = await Promise.all([initialConfig, record.outputTail])
-        return { configOptions: options }
+        try {
+          const initialConfig = serializeConfig(record, () => configOptions(record))
+          for (const update of await replayHistory(ctx, record, events)) notify(record, update)
+          notifyCommands(record)
+          const [options] = await Promise.all([initialConfig, record.outputTail])
+          const modes = modeState(record)
+          return { configOptions: options, ...modes === undefined ? {} : { modes } }
+        } catch (error: unknown) {
+          await closeRecord(record)
+          throw internalError(`session history projection failed: ${errorChain(error)}`)
+        }
       },
 
       async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
@@ -616,7 +695,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         const initialConfig = serializeConfig(record, () => configOptions(record))
         notifyCommands(record)
         const [options] = await Promise.all([initialConfig, record.outputTail])
-        return { configOptions: options }
+        const modes = modeState(record)
+        return { configOptions: options, ...modes === undefined ? {} : { modes } }
       },
 
       async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
@@ -658,10 +738,39 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
               record.selection.current = {
                 provider: resolved.provider,
                 model: resolved.model,
-                ...resolved.reasoningEffort === undefined ? {} : { reasoningEffort: resolved.reasoningEffort },
               }
             } catch (error: unknown) {
               throw invalidParams(`model is unavailable: ${errorChain(error)}`)
+            }
+          } else if (params.configId === REASONING_CONFIG_ID) {
+            if (typeof params.value !== 'string') throw invalidParams('reasoning configuration requires a select value')
+            const available = await configOptions(record)
+            if (!hasReasoningValue(available, params.value)) {
+              throw invalidParams(`unknown reasoning effort: ${params.value}`)
+            }
+            const current = record.selection.current
+            /* v8 ignore next -- without a current route, configOptions advertises no reasoning selector. */
+            if (current === undefined) throw invalidParams('reasoning configuration has no current model route')
+            let reasoningEffort: ReturnType<typeof decodeReasoningValue>
+            try {
+              reasoningEffort = decodeReasoningValue(params.value)
+            } catch (error: unknown) {
+              /* v8 ignore next -- advertised values are emitted by config-options.ts. */
+              throw invalidParams(error instanceof Error ? error.message : String(error))
+            }
+            try {
+              await ctx.llm.resolveCallConfig({
+                provider: current.provider,
+                model: current.model,
+                ...reasoningEffort === undefined ? {} : { reasoningEffort },
+              })
+              record.selection.current = {
+                provider: current.provider,
+                model: current.model,
+                ...reasoningEffort === undefined ? {} : { reasoningEffort },
+              }
+            } catch (error: unknown) {
+              throw invalidParams(`reasoning effort is unavailable: ${errorChain(error)}`)
             }
           } else if (params.configId === PERMISSION_CONFIG_ID) {
             if (typeof params.value !== 'string') throw invalidParams('permission configuration requires a select value')
@@ -689,21 +798,57 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         })
       },
 
+      setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
+        assertOpen()
+        const record = requireSession(SessionId(params.sessionId))
+        const planMode = planModeDirectory(ctx)
+        if (planMode === undefined) throw invalidParams('session modes are unavailable')
+        if (params.modeId !== DEFAULT_MODE_ID && params.modeId !== PLAN_MODE_ID) {
+          throw invalidParams(`unknown session mode: ${params.modeId}`)
+        }
+        planMode.set(record.agent, params.modeId === PLAN_MODE_ID)
+        notifyMode(record, params.modeId)
+        return Promise.resolve({})
+      },
+
       async prompt(params: PromptRequest): Promise<PromptResponse> {
         assertOpen()
         const record = requireSession(SessionId(params.sessionId))
         if (record.configuring > 0) throw invalidParams('a session configuration change is in flight')
         if (record.inflight !== undefined) throw invalidParams('a prompt is already in flight for this session')
+        const admissionDone = Promise.withResolvers<void>()
+        const admission: AdmissionInflight = {
+          kind: 'admission',
+          controller: new AbortController(),
+          cancelRequested: false,
+          done: admissionDone.promise,
+          finish: () => { admissionDone.resolve() },
+        }
+        record.inflight = admission
         let content: ContentBlock[]
         try {
-          content = admitTextPrompt(params.prompt)
+          content = await admitPrompt(
+            ctx,
+            record.agent,
+            record.selection.current,
+            params.prompt,
+            imagePromptEnabled,
+            admission.controller.signal,
+          )
         } catch (error: unknown) {
-          /* v8 ignore next 2 -- the text admission codec throws only InteractivePromptError. */
+          if (admission.cancelRequested || admission.controller.signal.aborted) {
+            return { stopReason: 'cancelled' }
+          }
+          /* v8 ignore next -- admitPrompt contains non-abort failures as InteractivePromptError. */
           if (!(error instanceof InteractivePromptError)) throw error
-          throw invalidParams(error.message)
+          throw error.kind === 'invalid' ? invalidParams(error.message) : internalError(error.message)
+        } finally {
+          admission.finish()
+          /* v8 ignore next -- admission remains installed until this finally block; close only cancels it. */
+          if (record.inflight === admission) record.inflight = undefined
         }
-        const text = admittedText(content)
-        if (text.startsWith('/')) {
+        const commandText = admittedCommandText(params.prompt, content)
+        if (commandText?.startsWith('/')) {
           const completed = Promise.withResolvers<void>()
           const inflight: CommandInflight = {
             kind: 'command',
@@ -713,7 +858,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             finish: () => { completed.resolve() },
           }
           record.inflight = inflight
-          const response = await runCommand(record, text, inflight)
+          const response = await runCommand(record, commandText, inflight)
           notifyConfigOptions(record)
           return response
         }
@@ -749,7 +894,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         const record = sessions.get(SessionId(params.sessionId))
         if (record === undefined) return Promise.resolve()
         const inflight = record.inflight
-        if (inflight?.kind === 'command') {
+        if (inflight?.kind === 'admission' || inflight?.kind === 'command') {
           inflight.cancelRequested = true
           inflight.controller.abort(new Error('ACP command cancelled'))
           return Promise.resolve()
@@ -772,6 +917,18 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   )
   conn = new AgentSideConnection(makeAgent, observeOutbound(baseStream, announceInitialCommands))
+
+  ctx.inject(['userQuestions'], (questionCtx) => {
+    const dispose = questionCtx.userQuestions.registerProvider(acpQuestionProvider(
+      (request) => {
+        if (request.agent === undefined) return undefined
+        return ownedRecord(request.agent)?.agent.session.id
+      },
+      () => elicitationEnabled,
+      request => conn.unstable_createElicitation(request),
+    ))
+    questionCtx.effect(() => dispose, 'acp-interactive: user-questions provider')
+  })
 
   let quiescing: Promise<void> | undefined
   const quiesce = (): Promise<void> => {
@@ -860,7 +1017,11 @@ function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotifi
   }
 }
 
-function replayHistory(record: SessionRecord, events: readonly SessionEvent[]): SessionNotification['update'][] {
+async function replayHistory(
+  ctx: Context,
+  record: SessionRecord,
+  events: readonly SessionEvent[],
+): Promise<SessionNotification['update'][]> {
   validateReplayableHistory(events)
   const updates: SessionNotification['update'][] = []
   let lastPlan: Extract<SessionEvent, { type: 'todo/write' }> | undefined
@@ -872,11 +1033,11 @@ function replayHistory(record: SessionRecord, events: readonly SessionEvent[]): 
     switch (event.type) {
       case 'user/message':
         if (event.data.source.kind === 'user') {
-          updates.push(...replayMessageContent('user_message_chunk', event.data.content))
+          updates.push(...await replayMessageContent(ctx, 'user_message_chunk', event.data.content))
         }
         break
       case 'assistant/message':
-        updates.push(...replayMessageContent('agent_message_chunk', event.data.message.content))
+        updates.push(...await replayMessageContent(ctx, 'agent_message_chunk', event.data.message.content))
         if (event.data.usage !== undefined) lastUsage = event
         break
       case 'tool/call':
@@ -915,40 +1076,57 @@ function replayHistory(record: SessionRecord, events: readonly SessionEvent[]): 
   return updates
 }
 
-function replayMessageContent(
+async function replayMessageContent(
+  ctx: Context,
   kind: 'user_message_chunk' | 'agent_message_chunk',
   content: readonly ContentBlock[],
-): SessionNotification['update'][] {
-  return content.flatMap((block): SessionNotification['update'][] => {
+): Promise<SessionNotification['update'][]> {
+  const updates: SessionNotification['update'][] = []
+  for (const block of content) {
     switch (block.type) {
       case 'text':
-        return [{ sessionUpdate: kind, content: { type: 'text', text: block.text } }]
+        updates.push({ sessionUpdate: kind, content: { type: 'text', text: block.text } })
+        break
       case 'reasoning':
-        return kind === 'agent_message_chunk'
-          ? [{ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: block.text } }]
-          : (() => { throw new Error('unsupported restored user message content: reasoning') })()
+        /* v8 ignore next -- validateReplayableHistory rejects reasoning in a user message first. */
+        if (kind !== 'agent_message_chunk') throw new Error('unsupported restored user message content: reasoning')
+        updates.push({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: block.text } })
+        break
       case 'tool-call':
       case 'tool-result':
+        /* v8 ignore next 3 -- validateReplayableHistory rejects tool blocks in a user message first. */
         if (kind === 'user_message_chunk') {
           throw new Error(`unsupported restored user message content: ${block.type}`)
         }
         /* v8 ignore next -- assistant tool blocks are represented by their paired tool events. */
-        return []
+        break
       case 'image':
-        throw new Error('image content is not supported in restored session history')
+        updates.push({ sessionUpdate: kind, content: await projectImage(ctx, block.attachment) })
+        break
+      /* v8 ignore next 2 -- validateReplayableHistory rejects merge-extensible content first. */
       default:
-        /* v8 ignore next -- merge-extensible content is refused; a first-party producer cannot create this branch. */
         throw new Error(`unsupported restored session content: ${(block as { type: string }).type}`)
     }
-  })
+  }
+  return updates
 }
 
 function validateReplayableHistory(events: readonly SessionEvent[]): void {
   for (const event of events) {
     if (event.type === 'user/message' && event.data.source.kind === 'user') {
-      replayMessageContent('user_message_chunk', event.data.content)
+      for (const block of event.data.content) {
+        if (block.type !== 'text' && block.type !== 'image') {
+          throw new Error(`unsupported restored user message content: ${block.type}`)
+        }
+      }
     } else if (event.type === 'assistant/message') {
-      replayMessageContent('agent_message_chunk', event.data.message.content)
+      const supportedTypes: ReadonlySet<string> = new Set(['text', 'reasoning', 'image', 'tool-call', 'tool-result'])
+      for (const block of event.data.message.content) {
+        /* v8 ignore next 2 -- typed first-party content is exhaustive; durable data still fails closed. */
+        if (!supportedTypes.has(block.type)) {
+          throw new Error(`unsupported restored session content: ${(block as { type: string }).type}`)
+        }
+      }
     } else if (event.type === 'tool/result') {
       const block = event.data.message.content[0]
       for (const content of block.content) {

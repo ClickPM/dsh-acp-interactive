@@ -143,14 +143,19 @@ describe('interactive ACP persisted sessions', () => {
       meta: structuredClone(source.session.header),
       events: structuredClone(source.session.events),
     })
+    const persistedHeader = harness.persisted.get(SessionId(sessionId))?.events
+      .find(event => event.type === 'request/header')
+    if (persistedHeader?.type !== 'request/header') throw new Error('missing persisted request header')
+    Object.assign(persistedHeader.data.header.config, { reasoningEffort: 'high' })
     await harness.client.closeSession({ sessionId })
     harness.updates.length = 0
 
-    await expect(harness.client.loadSession({
+    const loaded = await harness.client.loadSession({
       sessionId,
       cwd,
       mcpServers: [],
-    })).resolves.toEqual(expect.objectContaining({ configOptions: expect.any(Array) }))
+    })
+    expect(Array.isArray(loaded.configOptions)).toBe(true)
     const history = harness.updates
       .filter(update => update.sessionId === sessionId)
       .flatMap(({ update }) => update.sessionUpdate === 'user_message_chunk'
@@ -199,8 +204,8 @@ describe('interactive ACP persisted sessions', () => {
     await harness.client.closeSession({ sessionId })
     harness.updates.length = 0
 
-    await expect(harness.client.resumeSession({ sessionId, cwd }))
-      .resolves.toEqual(expect.objectContaining({ configOptions: expect.any(Array) }))
+    const resumed = await harness.client.resumeSession({ sessionId, cwd })
+    expect(Array.isArray(resumed.configOptions)).toBe(true)
     expect(harness.updates.map(update => update.update.sessionUpdate)).toEqual(['available_commands_update'])
     await expect(harness.client.resumeSession({ sessionId, cwd })).rejects.toThrow(/already active/)
     await harness.client.closeSession({ sessionId })
@@ -377,15 +382,7 @@ describe('interactive ACP persisted sessions', () => {
       .rejects.toThrow(/unsupported restored user message content: tool-call/)
     Object.assign(user.data, { content: [{ type: 'chart', data: 'x' }] })
     await expect(harness.client.loadSession({ sessionId, cwd, mcpServers: [] }))
-      .rejects.toThrow(/unsupported restored session content: chart/)
-    Object.assign(user.data, { content: [{
-      type: 'image',
-      attachment: { attachmentId: 'image', mediaType: 'image/png', bytes: 1 },
-    }] })
-    await expect(harness.client.loadSession({ sessionId, cwd, mcpServers: [] }))
-      .rejects.toThrow(/image content is not supported/)
-    expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
-
+      .rejects.toThrow(/unsupported restored user message content: chart/)
     Object.assign(user.data, { content: [{ type: 'text', text: 'restored' }] })
     const result = events.find(event => event.type === 'tool/result')
     if (result?.type !== 'tool/result') throw new Error('missing tool result')
