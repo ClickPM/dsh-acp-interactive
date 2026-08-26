@@ -26,7 +26,7 @@ GitHub installation runs this package's `prepare` build. Put the plugin in a ded
 
 ## Plugin
 
-`apply(ctx, config)` requires `agents`, `commands`, `llm`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
+`apply(ctx, config)` requires `agents`, `commands`, `llm`, `skills`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, skill lookup, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
 
 | Config | Meaning |
 |---|---|
@@ -41,7 +41,11 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 `session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
-`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, model, or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
+`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, skill discovery, model, or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
+
+The ACP command catalog merges the exact agent's `ctx.commands` view with the `userInvocable` skills discovered for its cwd and scope. A real command wins a same-name collision. `commands/change` and `skills/change` trigger full per-session replacement updates; incomplete or failed skill observations retain the last complete skill entries, and a complete empty result removes them. A leading `/<skill-name>` that still resolves to a user-invocable definition enters the ordinary user-message path, where `@deepseek-ai/dsh-tool-skill` performs the standard logged `agent/pre-step` injection. Unknown slash names remain unknown commands, and model-only skills are neither advertised nor accepted as explicit ACP skill invocations.
+
+The catalog does not declare domain commands itself. An official full profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback` with their corresponding domain providers; this bridge executes registered commands and does not treat model tools as slash commands.
 
 Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Direct slash commands remain text-only.
 
@@ -96,15 +100,15 @@ Without this metadata, the DeepSeek adapter treats that explicit catalog entry a
 
 #### What the model sees
 
-An ordinary ACP text prompt becomes one human `user/message` and enters the standard dsh request. A slash-leading prompt resolves through `ctx.commands`; command discovery and direct output stay outside model history, while a command-owned domain mutation may affect later requests.
+An ordinary ACP text prompt becomes one human `user/message` and enters the standard dsh request. A slash-leading prompt resolves a real `ctx.commands` entry first; otherwise an exact user-invocable skill remains a user message and receives the standard logged skill injection. Command discovery and direct output stay outside model history, while a command-owned domain mutation may affect later requests.
 
 #### Token effect
 
-Ordinary prompt text has the same retained token cost as any dsh human message. Direct command discovery, input, and output add no model tokens; a command-owned domain decides the cost of any later model-visible projection.
+Ordinary prompt text has the same retained token cost as any dsh human message. Direct command discovery, input, and output add no model tokens; a user-explicit skill adds its rendered instructions through the standard skill consumer, and a command-owned domain decides the cost of any later model-visible projection.
 
 #### KV Cache effect
 
-Ordinary prompt text appends after the reusable request prefix. Direct command traffic does not affect the cache; a command-owned model-visible change follows that domain's cache behavior.
+Ordinary prompt text appends after the reusable request prefix. Direct command traffic does not affect the cache; a skill injection changes that request's appended context, and a command-owned model-visible change follows that domain's cache behavior.
 
 ### UI projections
 

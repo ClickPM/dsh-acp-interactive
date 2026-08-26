@@ -92,6 +92,15 @@ dsh agent loop -> DeepSeek provider
 
 本阶段仍不接入 MCP server 与 additional directories。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应 unstable ACP capability 时启用。
 
+## 第五阶段
+
+第五阶段把 user-invocable skill 接入 Zed 的斜杠菜单，同时保留真实命令的直接执行语义：
+
+- ACP 目录合并精确 agent scope 下的 `ctx.commands` 与按 session cwd 发现的 `userInvocable` skills，真实命令与 skill 同名时由命令胜出；
+- `commands/change` 与 `skills/change` 分别刷新各 session 的完整目录，skill provider 返回不完整结果或失败时保留上一次完整 skill 目录，连接关闭会取消进行中的发现；
+- 真实命令继续由 `commands.execute()` 直接执行；精确匹配的 user-invocable skill 作为普通用户消息进入 agent，由 `dsh-tool-skill` 完成已落账的 `agent/pre-step` 内容注入；未知斜杠名称保持 unknown command，不会进入模型；
+- 每次目录查询和显式 skill 解析都携带精确 agent scope、cwd 与请求取消信号，不共享 session 间的目录或调用状态。
+
 ## 后续阶段
 
 后续阶段包括 MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用其他不稳定 ACP 扩展。
@@ -155,3 +164,10 @@ dsh agent loop -> DeepSeek provider
 4. `ask_user_question` 与 plan review 通过 ACP form elicitation 往返选项、多选与自由文本；外部 agent、不支持 elicitation 的客户端、关闭和取消都明确失败。
 5. 多个 session 的 mode、effort、图片准入和 elicitation 不串流，连接拆卸会注销 provider 并等待正在进行的准入静止。
 6. 真实 Loader 快照覆盖 modes、reasoning selector、图片能力、plan 与 ask 命令目录、`session/set_mode` 更新，以及一次经 ACP form elicitation 完成的两步模型／工具往返。
+
+## 第五阶段验收
+
+1. 真实 filesystem provider 发现的 user-invocable skill 出现在菜单中，`/<skill-name>` 经标准 pre-step 注入完成一个模型轮次；model-only skill 不出现。
+2. 同名 command/skill 由 command 胜出；未知名称明确报错，不会成为普通 prompt。
+3. skill 注册、注销和 provider invalidation 会刷新对应 session 的 ACP 目录；不完整观察不清空最后一次稳定目录。
+4. 显式 skill 解析可取消，两个 session 的 scoped skill 目录与调用互不影响。

@@ -55,7 +55,7 @@ import {
 import { createUserMessage, errorChain, type ContentBlock, type TokenUsage } from '@deepseek-ai/dsh-llm'
 import { SessionId, type SessionEvent, type TodoItem, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Declaration merges for the plugin-owned events and services projected below.
-import type {} from '@deepseek-ai/dsh-commands'
+import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-persistence'
@@ -64,6 +64,7 @@ import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
+import { isUserInvocable } from '@deepseek-ai/dsh-skill'
 import { admitPrompt, admittedCommandText, InteractivePromptError, projectImage } from './content.js'
 import { turnEndToStopReason } from './codec.js'
 import {
@@ -92,8 +93,8 @@ import {
 } from './presentation.js'
 
 export const name = 'acp-interactive'
-/** Interactive UI dependencies; model and tool providers remain composition choices. */
-export const inject = ['agents', 'commands', 'llm', 'tools', 'sessionPersistence', 'sessionQuery']
+/** Interactive UI registries; concrete model, skill, and tool providers remain composition choices. */
+export const inject = ['agents', 'commands', 'llm', 'skills', 'tools', 'sessionPersistence', 'sessionQuery']
 
 /** Provider/model defaults for agents created by this ACP server. */
 export interface AcpInteractiveConfig {
@@ -158,6 +159,8 @@ interface SessionRecord {
   configTail: Promise<void>
   configuring: number
   mode: string | undefined
+  skillCommands: AvailableCommand[]
+  commandCatalogController: AbortController | undefined
 }
 
 interface StartOperation {
@@ -173,12 +176,13 @@ interface ContinuableDrain {
 
 /**
  * Mount the editor-facing ACP server.
- * @param ctx - Cordis context carrying the agent, command, and tool registries.
+ * @param ctx - Cordis context carrying the agent, command, skill, and tool registries.
  * @param config - provider/model defaults and optional test transport.
  */
 export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const agents = ctx.agents
   const commands = ctx.commands
+  const skills = ctx.skills
   const tools = ctx.tools
   const logger = ctx.logger
   const sessions = new Map<SessionId, SessionRecord>()
@@ -213,9 +217,11 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       sessionId: record.agent.session.id,
       update,
     }))
+    /* v8 ignore start -- The SDK contains notification transport failures; this protects alternate Stream implementations. */
     record.outputTail = delivery.catch((error: unknown) => {
       logger.warn(`acp-interactive: session/update failed: ${String(error)}`)
     })
+    /* v8 ignore stop */
   }
 
   const notifyImage = (
@@ -235,18 +241,53 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     })
   }
 
-  const availableCommands = (record: SessionRecord): AvailableCommand[] =>
-    commands.list(record.agent).map(command => ({
+  const availableCommands = (record: SessionRecord): AvailableCommand[] => {
+    const commandEntries = commands.list(record.agent).map(command => ({
       name: command.name,
       description: command.description,
       ...command.input === undefined ? {} : { input: { hint: command.input.hint } },
     }))
+    const commandNames = new Set(commandEntries.map(command => command.name))
+    return [...commandEntries, ...record.skillCommands.filter(skill => !commandNames.has(skill.name))]
+      // Names are unique after command precedence removes collisions.
+      .sort((left, right) => left.name < right.name ? -1 : 1)
+  }
 
   const notifyCommands = (record: SessionRecord): void => {
     notify(record, {
       sessionUpdate: 'available_commands_update',
       availableCommands: availableCommands(record),
     })
+  }
+
+  const listSkillCommands = async (record: SessionRecord, signal: AbortSignal): Promise<AvailableCommand[] | undefined> => {
+    const snapshot = await skills.snapshot({
+      cwd: record.agent.session.header.cwd,
+      scope: record.agent,
+      signal,
+    })
+    if (!snapshot.complete) return undefined
+    return snapshot.skills.filter(isUserInvocable).map(skill => ({
+      name: skill.name,
+      description: skill.description,
+    }))
+  }
+
+  const refreshCommands = async (record: SessionRecord): Promise<void> => {
+    record.commandCatalogController?.abort(new Error('ACP command catalog refresh replaced'))
+    const controller = new AbortController()
+    record.commandCatalogController = controller
+    try {
+      const skillCommands = await listSkillCommands(record, controller.signal)
+      if (skillCommands !== undefined) record.skillCommands = skillCommands
+    } catch (error: unknown) {
+      if (controller.signal.aborted) return
+      logger.warn(`acp-interactive: command catalog refresh failed: ${errorChain(error)}`)
+    } finally {
+      if (record.commandCatalogController === controller) record.commandCatalogController = undefined
+    }
+    if (sessions.get(record.agent.session.id) !== record || record.closing !== undefined) return
+    notifyCommands(record)
   }
 
   const selectionFor = (agent: Agent): ModelSelectionRef => {
@@ -302,6 +343,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     configTail: Promise.resolve(),
     configuring: 0,
     mode: undefined,
+    skillCommands: [],
+    commandCatalogController: undefined,
   })
 
   const configOptions = (record: SessionRecord): Promise<SessionConfigOption[]> =>
@@ -352,6 +395,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   }
 
   const cancelRecord = (record: SessionRecord, reason: Error): void => {
+    record.commandCatalogController?.abort(reason)
     const inflight = record.inflight
     if (inflight?.kind === 'admission' || inflight?.kind === 'command') {
       inflight.cancelRequested = true
@@ -447,12 +491,19 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     const record = pendingCommandSnapshots.get(sessionId)
     if (record === undefined) return
     pendingCommandSnapshots.delete(sessionId)
-    notifyCommands(record)
+    void refreshCommands(record)
   }
 
   ctx.on('commands/change', () => {
     for (const record of sessions.values()) {
       if (!pendingCommandSnapshots.has(record.agent.session.id)) notifyCommands(record)
+    }
+  })
+
+  ctx.on('skills/change', () => {
+    for (const record of sessions.values()) {
+      if (pendingCommandSnapshots.has(record.agent.session.id)) continue
+      void refreshCommands(record)
     }
   })
 
@@ -680,7 +731,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         try {
           const initialConfig = serializeConfig(record, () => configOptions(record))
           for (const update of await replayHistory(ctx, record, events)) notify(record, update)
-          notifyCommands(record)
+          await refreshCommands(record)
           const [options] = await Promise.all([initialConfig, record.outputTail])
           const modes = modeState(record)
           return { configOptions: options, ...modes === undefined ? {} : { modes } }
@@ -693,7 +744,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
         const { record } = await resumeRecord(params, false)
         const initialConfig = serializeConfig(record, () => configOptions(record))
-        notifyCommands(record)
+        await refreshCommands(record)
         const [options] = await Promise.all([initialConfig, record.outputTail])
         const modes = modeState(record)
         return { configOptions: options, ...modes === undefined ? {} : { modes } }
@@ -826,6 +877,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         record.inflight = admission
         let content: ContentBlock[]
+        let commandText: string | undefined
+        let dispatchCommand = false
         try {
           content = await admitPrompt(
             ctx,
@@ -835,6 +888,21 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             imagePromptEnabled,
             admission.controller.signal,
           )
+          commandText = admittedCommandText(params.prompt, content)
+          if (commandText?.startsWith('/') === true) {
+            const parsed = parseCommand(commandText)
+            const command = parsed === undefined ? undefined : commands.find(record.agent, parsed.name)
+            if (command !== undefined) {
+              dispatchCommand = true
+            } else {
+              const skill = parsed === undefined ? undefined : await skills.get(parsed.name, {
+                cwd: record.agent.session.header.cwd,
+                scope: record.agent,
+                signal: admission.controller.signal,
+              })
+              dispatchCommand = skill === undefined || !isUserInvocable(skill)
+            }
+          }
         } catch (error: unknown) {
           if (admission.cancelRequested || admission.controller.signal.aborted) {
             return { stopReason: 'cancelled' }
@@ -847,8 +915,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           /* v8 ignore next -- admission remains installed until this finally block; close only cancels it. */
           if (record.inflight === admission) record.inflight = undefined
         }
-        const commandText = admittedCommandText(params.prompt, content)
-        if (commandText?.startsWith('/')) {
+        if (dispatchCommand && commandText !== undefined) {
           const completed = Promise.withResolvers<void>()
           const inflight: CommandInflight = {
             kind: 'command',

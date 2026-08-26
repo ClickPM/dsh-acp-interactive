@@ -26,7 +26,7 @@ GitHub 安装会运行本包的 `prepare` 构建脚本。插件必须放进专�
 
 ## 插件
 
-`apply(ctx, config)` 需要 `agents`、`commands`、`llm`、`tools`、`sessionPersistence` 和 `sessionQuery`。它只回答自己创建的 agent 的审批请求，并把外来请求交给下一个监听器。一条连接可以拥有多个互相隔离的 session；每个事件、选择和审批在进入 wire 前都会核对精确的 agent 对象。组合 `permissionPresets` 服务后会增加权限 selector；缺少该服务时模型选择仍然可用，而权限配置会省略。
+`apply(ctx, config)` 需要 `agents`、`commands`、`llm`、`skills`、`tools`、`sessionPersistence` 和 `sessionQuery`。它只回答自己创建的 agent 的审批请求，并把外来请求交给下一个监听器。一条连接可以拥有多个互相隔离的 session；每个事件、选择、skill 查找和审批在进入 wire 前都会核对精确的 agent 对象。组合 `permissionPresets` 服务后会增加权限 selector；缺少该服务时模型选择仍然可用，而权限配置会省略。
 
 | 配置 | 含义 |
 |---|---|
@@ -41,7 +41,11 @@ GitHub 安装会运行本包的 `prepare` 构建脚本。插件必须放进专�
 
 `session/list` 从 live 优先的查询语料库读取 session，按确定性的创建时间倒序返回，省略没有已记录绝对 cwd 的 session，支持精确 cwd 过滤，并尽可能附带日志中的标题。当前响应为不分页的完整结果；非 null cursor 会明确失败。
 
-`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、模型或命令工作，等待输出与 continuable 后代静止，再释放精确归属的 agent。
+`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，再释放精确归属的 agent。
+
+ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 cwd 与 scope 发现的 `userInvocable` skill。真实命令与同名 skill 冲突时由命令胜出。`commands/change` 和 `skills/change` 会触发按 session 的完整替换更新；skill 观察不完整或失败时保留上一次完整条目，完整空结果会删除旧条目。以 `/<skill-name>` 开头的输入若仍能解析为用户可调用定义，就进入普通用户消息路径，由 `@deepseek-ai/dsh-tool-skill` 完成标准、已落账的 `agent/pre-step` 注入。未知斜杠名称仍是未知命令；仅限模型的 skill 既不公布，也不接受为 ACP 显式 skill 调用。
+
+命令目录本身不声明领域命令；官方完整 profile 应在外围 Cordis 组合中挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback` 及其对应 domain/provider。该 bridge 只执行已注册的 command，不把模型工具误当作斜杠命令。
 
 当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。组合 attachment store 后，初始化会声明图片输入；每张图片都会针对所选模型 route 完成校验和持久化后才排入消息，因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource、MCP server 和 additional directory 会被明确拒绝。直接斜杠命令仍只接受文字。
 
@@ -96,15 +100,15 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 
 #### 模型看到什么
 
-普通 ACP 文字 prompt 会成为一条 human `user/message`，进入标准 dsh 请求。以斜杠开头的 prompt 通过 `ctx.commands` 解析；命令发现和直接输出不进入模型历史，但命令所拥有的领域变更可能影响后续请求。
+普通 ACP 文字 prompt 会成为一条 human `user/message`，进入标准 dsh 请求。以斜杠开头的 prompt 会先解析真实 `ctx.commands` 条目；否则，精确匹配的用户可调用 skill 仍作为用户消息，并获得标准的已落账 skill 注入。命令发现和直接输出不进入模型历史，但命令所拥有的领域变更可能影响后续请求。
 
 #### Token 影响
 
-普通 prompt 文字与其他 dsh human message 具有相同的留存 token 成本。直接命令的发现、输入和输出不增加模型 token；命令所拥有的领域决定后续任何模型可见投影的成本。
+普通 prompt 文字与其他 dsh human message 具有相同的留存 token 成本。直接命令的发现、输入和输出不增加模型 token；用户显式 skill 通过标准 skill consumer 加入其渲染后的指令，命令所拥有的领域决定后续任何模型可见投影的成本。
 
 #### KV Cache 影响
 
-普通 prompt 文字追加在可复用请求前缀之后。直接命令流量不影响 cache；命令所拥有的模型可见变化遵循该领域的 cache 行为。
+普通 prompt 文字追加在可复用请求前缀之后。直接命令流量不影响 cache；skill 注入会改变该请求追加的上下文，命令所拥有的模型可见变化遵循该领域的 cache 行为。
 
 ### UI 投影
 

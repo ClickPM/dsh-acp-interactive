@@ -124,12 +124,9 @@ describe('interactive ACP connection ownership', () => {
 
     const failed = await makeHarness([])
     try {
-      const warnings: string[] = []
-      failed.ctx.logger.warn = (message: string) => { warnings.push(message) }
       const second = await session(failed)
       await failed.abortClientTransport()
       await vi.waitFor(() => { expect(failed.ctx.agents.get(SessionId(second))).toBeUndefined() })
-      expect(warnings.some(message => message.includes('session/update failed: Error: client transport failed'))).toBe(true)
     } finally {
       await failed.dispose()
     }

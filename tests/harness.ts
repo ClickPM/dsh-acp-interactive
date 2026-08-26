@@ -22,6 +22,8 @@ import {
 } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import SkillRegistry from '@deepseek-ai/dsh-skill'
+import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryEngine, {
@@ -234,6 +236,8 @@ export async function makeHarness(
   await ctx.plugin(HarnessPersistence, persisted)
   await ctx.plugin(HarnessSessionQuery)
   await ctx.plugin(CommandRuntime)
+  await ctx.plugin(SkillRegistry)
+  await ctx.plugin(toolSkill)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new MockAdapter(script)
   ctx.llm.registerAdapter(['mock'], adapter)
