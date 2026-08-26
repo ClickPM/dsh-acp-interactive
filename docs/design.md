@@ -10,7 +10,7 @@
 
 运行不需要 Zed 为 DeepSeek 或 dsh 增加专用内置支持。只要当前 Zed 版本支持在 `agent_servers` 中启动自定义 ACP agent，就可以把 dsh 的启动命令配置进去。Zed 官方支持会影响 Registry 一键安装、非标准 `_meta` 扩展和新 ACP 功能的兼容速度，但不是第一阶段的前置条件。
 
-DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent 和事件模型；实际模型仍由现有 `dsh-llm-deepseek` provider 选择。
+DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent 和事件模型；实际模型由外围 Cordis 组合注册的 provider 选择。组合 `dsh-settings-file`、`dsh-credentials-local` 和 `dsh-llm-pi-ai` 后，ACP server 可以读取当前用户 dsh home 中与 Pi Agent 桌面版相同的 provider profile 和凭据引用，同时保留各进程与 session 的隔离。
 
 ## 包边界
 
@@ -28,7 +28,7 @@ Zed Agent Panel
 dsh-acp-interactive
     | create/followup/cancel + session event projection
     v
-dsh agent loop -> DeepSeek provider
+dsh agent loop -> selected provider (DeepSeek or user-configured route)
     |
     +-> dsh tools -> sandbox / subprocess / filesystem
     +-> approval/request -> ACP permission dialog -> decision returned to dsh

@@ -17,12 +17,25 @@ npm install github:cking000bigdemon/dsh-acp-interactive#<sha>
 GitHub 安装会运行本包的 `prepare` 构建脚本。插件必须放进专用 ACP stdio 组合，不能加入普通控制台 profile，因为 stdout 只能传输 JSON-RPC 帧：
 
 ```yaml
+- id: settings
+  name: '@deepseek-ai/dsh-settings-file'
+
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
+
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+
 - id: acp-interactive
   name: 'dsh-acp-interactive'
   config:
     provider: deepseek-official
     model: deepseek-v4-pro
 ```
+
+这三个 provider 依赖随本包安装，但仍由 Cordis 组合显式加载。`settings-file` 默认读取 `$DSH_HOME/settings.yaml`，`credentials-local` 解析同一个 dsh home 下的托管凭据，休眠挂载的 `llm-pi-ai` 则为 `llm-pi-ai.providers` 中的每条 route 动态注册模型。未设置 `DSH_HOME` 时使用当前用户的默认 `.dsh` 目录。因此 Pi Agent 桌面版与 Zed ACP 可以共享 provider、模型目录和凭据引用，无需把 API key 复制进 `cordis.yml`。桌面版与 ACP server 仍是相互隔离的进程和 session。
+
+`provider` 和 `model` 仅决定新 session 的初始 route，不会限制模型选择器。只要外围组合同时保留 DeepSeek adapter，Zed 就会按 provider 分组显示 DeepSeek 和用户配置的 OpenAI-compatible、Anthropic 或自定义网关模型。运行中修改 `settings.yaml` 后，provider 目录会由 settings 与 LLM registry 的现有动态更新路径刷新。
 
 ## 插件
 
@@ -69,7 +82,7 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 
 ## 在 Zed 中运行
 
-目前验证的源码启动方式使用 DeepSeek Harness checkout 中的 `examples/acp-interactive-agent/cordis.yml` 组合。在该 checkout 执行 `pnpm run demo:acp:interactive` 即可启动 server。该示例把 JSONL session 存在 `./.sessions`，为每个 server 进程使用一个可丢弃的内存 SQLite session-query 索引，在有副作用的操作前建立持久化 checkpoint，并组合标准的 workspace-write/full-access 权限 presets。多个编辑器 server 进程可以共享 JSONL 根目录，但不会共享只能由一个 owner 持有的派生索引。在 Zed 中登记该命令：
+目前验证的源码启动方式使用 DeepSeek Harness checkout 中的 `examples/acp-interactive-agent/cordis.yml` 组合。在该 checkout 执行 `pnpm run demo:acp:interactive` 即可启动 server。若要显示用户目录中的 provider，还需把安装章节中的 `settings`、`credentials` 和 `llm-pi-ai` 三行加入该示例组合及其 resolver manifest。该示例把 JSONL session 存在 `./.sessions`，为每个 server 进程使用一个可丢弃的内存 SQLite session-query 索引，在有副作用的操作前建立持久化 checkpoint，并组合标准的 workspace-write/full-access 权限 presets。多个编辑器 server 进程可以共享 JSONL 根目录，但不会共享只能由一个 owner 持有的派生索引。在 Zed 中登记该命令：
 
 ```json
 {
