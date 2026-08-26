@@ -6,3 +6,5 @@ lib/
 *.tgz
 *.zip
 SHA256SUMS.txt
+.harness-tests/
+coverage/

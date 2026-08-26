@@ -14,7 +14,7 @@ Before an npm release, install globally from GitHub and pin an audited commit:
 npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
 ```
 
-GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the bundled `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and shell capabilities, permissions, persistence, all official slash commands, and the ACP transport. Stdout carries JSON-RPC frames only.
+GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the bundled `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and shell capabilities, permissions, persistence, all official slash commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
@@ -171,7 +171,9 @@ npm run typecheck
 npm run build
 ```
 
-See the [design document](docs/design.md) for the phased scope.
+The standalone repository has no runtime dependency on a DeepSeek Harness checkout. For development compatibility, set `DSH_HARNESS_ROOT` to a read-only official checkout or place one at the sibling `../deepseek-harness` path, then run `npm run test:harness`. The command copies the current official `packages/acp/acp-interactive/tests` into an ignored temporary directory and runs those assertions against this repository's `src`; `npm run test:all` chains the repository and official compatibility suites.
+
+See the [design document](docs/design.md) for the implemented scope and the [development roadmap](docs/roadmap.en.md) for the recommended sequence and acceptance criteria.
 
 ## License
 

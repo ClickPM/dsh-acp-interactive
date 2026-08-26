@@ -14,7 +14,7 @@
 npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
 ```
 
-GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内 `config/cordis.yml`，组合 DeepSeek 与用户 provider、agent spine、文件和 shell 能力、权限、持久化、完整官方斜杠命令以及 ACP transport。stdout 只传输 JSON-RPC 帧。
+GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内 `config/cordis.yml`，组合 DeepSeek 与用户 provider、agent spine、文件和 shell 能力、权限、持久化、完整官方斜杠命令以及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 
@@ -171,7 +171,9 @@ npm run typecheck
 npm run build
 ```
 
-设计与阶段范围见[设计说明](docs/design.md)。
+独立仓库不在运行时依赖 DeepSeek Harness checkout。开发兼容性检查使用只读的官方 checkout：设置 `DSH_HARNESS_ROOT` 后运行 `npm run test:harness`，或在仓库旁放置 `../deepseek-harness`。该命令复制当前官方 `packages/acp/acp-interactive/tests` 到忽略的临时目录，并用本仓库 `src/` 执行；`npm run test:all` 串联本仓库测试与官方兼容套件。
+
+已实现范围见[设计说明](docs/design.md)，推荐开发顺序与各阶段验收条件见[后续开发路线图](docs/roadmap.md)。
 
 ## 许可证
 

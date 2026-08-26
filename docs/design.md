@@ -105,30 +105,25 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 
 ## 后续阶段
 
-后续阶段包括 MCP server 接入以及 additional directories。之后再根据 Zed 实际兼容性决定是否使用其他不稳定 ACP 扩展。
+后续开发按协议基线、官方 Harness profile 对齐、Additional directories 与 MCP、完整 Session 管理、丰富内容与实时 UI、分发与下一代协议六个阶段推进。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
 
 ## Zed 连接方式
 
-构建后，在 Zed 的 settings 中登记一个自定义 agent server。Windows 示例：
+全局安装后，在 Zed 的 settings 中登记一个自定义 agent server。Windows 示例：
 
 ```json
 {
   "agent_servers": {
     "DeepSeek Harness": {
       "type": "custom",
-      "command": "pnpm.cmd",
-      "args": [
-        "--dir",
-        "D:/variFlight_work/deepseek-harness",
-        "run",
-        "demo:acp:interactive"
-      ]
+      "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
+      "args": []
     }
   }
 }
 ```
 
-发布包安装后，配置可以收敛成 `dsh-acp-interactive-demo --config <path>`。stdio 的 stdout 只承载 ACP 帧；诊断必须写 stderr。
+启动命令加载包内 `config/cordis.yml`，不依赖 DeepSeek Harness 源码 checkout。stdio 的 stdout 只承载 ACP 帧；诊断必须写 stderr。
 
 ## 第一阶段验收
 

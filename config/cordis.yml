@@ -25,10 +25,18 @@
     workspaceRoot: !!js process.cwd()
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
-- id: bash
+
+# The shell executor and model-facing tool must use the same dialect. Windows
+# selects PowerShell; POSIX hosts select bash. The agent spine's bundled bash
+# consumer is disabled below so this deployment owns the platform switch.
+- id: bash-sandbox
   name: '@deepseek-ai/dsh-bash-sandbox'
+  disabled: !!js process.platform === 'win32'
   config:
     timeoutMs: 60000
+- id: pwsh-sandbox
+  name: '@deepseek-ai/dsh-pwsh-sandbox'
+  disabled: !!js process.platform !== 'win32'
 - id: approval
   name: '@deepseek-ai/dsh-user-approval'
   config:
@@ -36,11 +44,20 @@
 - id: agent-spine
   name: '@deepseek-ai/dsh-agent-spine-demo'
   config:
+    toolBash: false
     goals: {}
     workspaceContext:
       maxBytes: 65536
     persona: |
       You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+- id: shell-env
+  name: '@deepseek-ai/dsh-shell-env'
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: !!js process.platform === 'win32'
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: !!js process.platform !== 'win32'
 - id: commands
   name: '@deepseek-ai/dsh-commands'
 - id: command-feedback
