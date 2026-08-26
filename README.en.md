@@ -4,17 +4,19 @@
 
 Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh agents on demand and projects their live session events into ACP message, thought, tool, permission, plan, title, usage, and command updates. Zed is the first compatibility target.
 
-This package is a UI transport plugin. The agent loop, model provider, tools, sandbox, subprocesses, and approval policy remain in the surrounding Cordis composition. This UI bridge is separate from the upstream automation-only ACP transport.
+This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
 ## Installation
 
-Before an npm release, install directly from GitHub and pin an audited commit:
+Before an npm release, install globally from GitHub and pin an audited commit:
 
 ```sh
-npm install github:cking000bigdemon/dsh-acp-interactive#<sha>
+npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
 ```
 
-GitHub installation runs this package's `prepare` build. Put the plugin in a dedicated ACP stdio composition, not an ordinary console profile, because stdout carries JSON-RPC frames only:
+GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the bundled `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and shell capabilities, permissions, persistence, all official slash commands, and the ACP transport. Stdout carries JSON-RPC frames only.
+
+Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
 ```yaml
 - id: settings
@@ -33,7 +35,7 @@ GitHub installation runs this package's `prepare` build. Put the plugin in a ded
     model: deepseek-v4-pro
 ```
 
-These three provider dependencies are installed with this package but remain explicit Cordis composition entries. `settings-file` reads `$DSH_HOME/settings.yaml` by default, `credentials-local` resolves managed credentials from the same dsh home, and the dormant `llm-pi-ai` mount dynamically registers every route under `llm-pi-ai.providers`. With no `DSH_HOME` override, the current user's default `.dsh` directory is used. Pi Agent Desktop and Zed ACP can therefore share provider profiles, model catalogs, and credential references without copying API keys into `cordis.yml`; they remain separate processes with isolated sessions.
+The bundled composition explicitly mounts these three provider dependencies. `settings-file` reads `$DSH_HOME/settings.yaml` by default, `credentials-local` resolves managed credentials from the same dsh home, and the dormant `llm-pi-ai` mount dynamically registers every route under `llm-pi-ai.providers`. With no `DSH_HOME` override, the current user's default `.dsh` directory is used. Pi Agent Desktop and Zed ACP can therefore share provider profiles, model catalogs, and credential references without copying API keys into Zed or `cordis.yml`. A profile's `apiKeyEnv` must match a key under `.credentials.yaml` `refs`. The desktop app and ACP server remain separate processes with isolated sessions.
 
 `provider` and `model` select only the initial route for a new session; they do not restrict the model selector. When the surrounding composition also retains the DeepSeek adapter, Zed groups DeepSeek together with the user's OpenAI-compatible, Anthropic, and custom gateway routes. Changes to `settings.yaml` refresh the provider directory through the existing settings and LLM-registry update path.
 
@@ -82,21 +84,21 @@ The Zed terminal extension is capability-gated. When the client advertises `_met
 
 ## Running with Zed
 
-The verified source launch uses the DeepSeek Harness checkout and its `examples/acp-interactive-agent/cordis.yml` composition. From that checkout, `pnpm run demo:acp:interactive` boots the server. To advertise providers from the user's dsh home, add the `settings`, `credentials`, and `llm-pi-ai` entries from Installation to that example and its resolver manifest. The example stores JSONL sessions under `./.sessions`, uses one disposable in-memory SQLite session-query index per server process, checkpoints durable work before effects, and composes the standard workspace-write/full-access permission presets. Multiple editor server processes may share the JSONL root without sharing the single-owner derived index. Register that command in Zed:
+After installation, register the installed command directly in Zed. On Windows, `where.exe dsh-acp-interactive` prints its absolute path:
 
 ```json
 {
   "agent_servers": {
     "DeepSeek Harness": {
       "type": "custom",
-      "command": "pnpm.cmd",
-      "args": ["--dir", "D:/path/to/deepseek-harness", "run", "demo:acp:interactive"]
+      "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
+      "args": []
     }
   }
 }
 ```
 
-No DeepSeek-specific Zed code is required. The editor only needs support for custom ACP agent servers; Registry packaging and future protocol extensions may still benefit from upstream integration.
+Zed starts the server with the workspace as cwd. JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index. Multiple editor processes can share the JSONL source of truth without contending for the derived index. No DeepSeek Harness checkout or DeepSeek-specific Zed code is required.
 
 An explicitly configured image-capable model must declare its input modalities. For example:
 

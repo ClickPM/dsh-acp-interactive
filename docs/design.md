@@ -16,8 +16,10 @@ DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent �
 
 - `@deepseek-ai/dsh-acp` 保持 automation-only，继续服务程序化 ACP 客户端和进程外 subagent。
 - `dsh-acp-interactive` 是面向编辑器和人的独立 UI transport，不被 automation ACP 的最小协议面约束。
-- DeepSeek Harness 上游源码中的 `examples/acp-interactive-agent/cordis.yml` 提供可直接被 Zed 启动的组合；本仓库不包含独立 launcher。
+- 本仓库发布 `dsh-acp-interactive` launcher 与 `config/cordis.yml` 完整组合；Zed 直接启动安装后的命令，不依赖 DeepSeek Harness 源码 checkout。
 - ACP 只投影 dsh 已经拥有的状态，不让 Zed 代替 dsh 执行工具或扩大文件访问范围。
+
+自包含启动器的长期约束记录在 [Agent Note](agent-notes/2026-08-26-self-contained-launcher.md)。
 
 ## 数据流
 
