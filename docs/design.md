@@ -76,7 +76,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - `session/new`、`session/load` 和 `session/resume` 返回完整 `configOptions`，模型按 provider 分组，权限来自 `ctx.permissionPresets` 的部署配置；
 - `session/set_config_option` 的模型值编码完整 provider/model route，只接受当前目录公布的值，并通过 agent-scoped model selection 在下一次 prompt assembly 生效；
 - 恢复会话以最后一条 `request/header` 的 route 作为当前模型；目录不再公布该 route 时仍显示一个 current-only 选项，不会把历史选择改写成默认值；
-- 权限 selector 复用 `/permission` 的唯一在线写路径，把 preset、sandbox mode 和 approval policy 一起持久化；运行中的 session 拒绝切换，避免正在执行的工具跨越两套策略；
+- 权限 selector 复用 `/permission` 的唯一在线写路径，把 preset、sandbox mode 和 approval policy 一起持久化；运行中的 session 也接受切换，事件立即落账，对后续受限调用与审批请求生效；
 - LLM adapter topology 变化后发送完整 `config_option_update`，直接执行 `/permission` 后也刷新 selector；
 - selector 请求按 session 串行化，prompt 不会越过尚未结算的配置切换。
 
@@ -89,10 +89,10 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 组合 `ctx.planMode` 时，`session/new`、`session/load` 和 `session/resume` 返回原生 ACP `default`／`plan` modes，`session/set_mode` 委托标准 plan-mode 服务，`plan/mode` 事件发布 `current_mode_update`；
 - 所选精确模型公布 reasoning efforts 时增加 `thought_level` selector，切换在下一次 prompt assembly 生效，切换模型清除显式 effort 并采用新 route 默认值，恢复会话保留最后 request header 中的精确 effort；
 - baseline `resource_link` 变成持久用户消息中的明确引用；组合 attachment store 后公布 inline image 能力，图片在消息排队前校验模型 route、批量持久化并替换为 durable reference，加载历史时重新校验并投影图片字节；
-- 组合 `ctx.userQuestions` 后，为本连接精确拥有的根 agent 注册 ACP form elicitation provider，结构化投影普通问题、多选、自由文本和 plan-review detail，并区分用户关闭与 turn 取消；
+- 组合 `ctx.userQuestions` 后，为本连接精确拥有的根 agent 注册稳定 ACP form elicitation provider，结构化投影普通问题、多选、自由文本和 plan-review detail，并区分用户关闭、turn 取消与 request cancellation；
 - 示例组合加入 attachment store、plan mode、user-questions 与 `ask_user_question` consumer，并公布可选 vision route。
 
-本阶段仍不接入 MCP server 与 additional directories。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应 unstable ACP capability 时启用。
+本阶段仍不接入 MCP server 与 additional directories。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应稳定 ACP capability 时启用。
 
 ## 第五阶段
 
@@ -149,7 +149,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 1. Zed 新建、加载或恢复 session 后能看到按 provider 分组的模型和当前权限 preset。
 2. 模型切换只影响下一次进入 prompt assembly 的 step，运行中的 step 保持已组装 route。
 3. 未公布的模型值、未知权限 preset 和未知 config id 明确失败，不改变当前选择。
-4. 权限切换写入 preset、sandbox mode 和 approval policy 的标准 session 事件，运行中的 session 不允许切换。
+4. 权限切换写入 preset、sandbox mode 和 approval policy 的标准 session 事件，运行中的 session 也允许切换，切换从后续受限调用与审批请求开始生效。
 5. 多个 session 的模型选择、权限选择和串行化队列互相隔离。
 6. 真实 Loader 快照覆盖新建与加载响应中的完整 config options。
 

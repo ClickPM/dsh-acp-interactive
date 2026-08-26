@@ -67,7 +67,7 @@ describe('interactive ACP bridge edges', () => {
     const response = await harness.client.initialize({ protocolVersion: 0, clientCapabilities: {} })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.1.0' },
+      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.6.0' },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})
@@ -336,8 +336,8 @@ describe('interactive ACP bridge edges', () => {
     })
     const usage = harness.updates.filter(item => item.update.sessionUpdate === 'usage_update')
     expect(usage.map(item => item.update)).toEqual([
-      { sessionUpdate: 'usage_update', size: 100, used: 5 },
-      { sessionUpdate: 'usage_update', size: 100, used: 4 },
+      { sessionUpdate: 'usage_update', size: 100, used: 2 },
+      { sessionUpdate: 'usage_update', size: 100, used: 3 },
     ])
     expect(harness.updates.some(item => item.update.sessionUpdate === 'plan'
       && item.update.entries.some(entry => entry.content === 'foreign'))).toBe(false)

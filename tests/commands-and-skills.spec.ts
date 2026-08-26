@@ -99,7 +99,10 @@ describe('interactive ACP commands and skills', () => {
     expect(harness.adapter.requests).toHaveLength(0)
     expect(harness.updates).toContainEqual({
       sessionId,
-      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'command won' } },
+      update: expect.objectContaining({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: 'command won' },
+      }),
     })
   })
 
@@ -155,10 +158,10 @@ describe('interactive ACP commands and skills', () => {
     expect(harness.adapter.requests).toHaveLength(0)
     expect(harness.updates).toContainEqual({
       sessionId,
-      update: {
+      update: expect.objectContaining({
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'Error: unknown command: /not-a-skill' },
-      },
+      }),
     })
     await expect(harness.client.prompt({
       sessionId, prompt: [{ type: 'text', text: '/' }],

@@ -95,15 +95,19 @@ describe('interactive ACP bridge', () => {
         input: { hint: '<path>' },
       }],
     })
-    expect(own).toContainEqual({
+    expect(own).toContainEqual(expect.objectContaining({
       sessionUpdate: 'agent_thought_chunk',
       content: { type: 'text', text: 'inspect first' },
-    })
-    expect(own).toContainEqual({
+    }))
+    expect(own).toContainEqual(expect.objectContaining({
       sessionUpdate: 'agent_message_chunk',
       content: { type: 'text', text: 'done' },
-    })
-    expect(own).toContainEqual({ sessionUpdate: 'usage_update', size: 128_000, used: 46 })
+    }))
+    expect(own).toContainEqual({ sessionUpdate: 'usage_update', size: 128_000, used: 42 })
+    const thought = own.find(update => update.sessionUpdate === 'agent_thought_chunk')
+    const message = own.find(update => update.sessionUpdate === 'agent_message_chunk')
+    expect(thought).toEqual(expect.objectContaining({ messageId: expect.stringMatching(/:thought$/) }))
+    expect(message).toEqual(expect.objectContaining({ messageId: expect.any(String) }))
     expect(own).toContainEqual({
       sessionUpdate: 'plan',
       entries: [{ content: 'ship phase one', priority: 'medium', status: 'in_progress' }],
@@ -131,10 +135,10 @@ describe('interactive ACP bridge', () => {
     expect(harness.adapter.requests).toHaveLength(0)
     expect(harness.updates).toContainEqual({
       sessionId,
-      update: {
+      update: expect.objectContaining({
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: 'hello from dsh' },
-      },
+      }),
     })
   })
 
@@ -146,11 +150,13 @@ describe('interactive ACP bridge', () => {
     const agent = harness.ctx.agents.get(SessionId(sessionId))
     if (agent === undefined) throw new Error('missing bridge-owned agent')
     agent.session.append('turn/start', { turn: 1 })
+    const approvalController = new AbortController()
 
     await expect(harness.ctx.approval.request({
       agent,
       toolName: 'bash',
       callId: CallId('call-1'),
+      signal: approvalController.signal,
     })).resolves.toBe('allowed-once')
     expect(harness.permissionRequests).toEqual([{
       sessionId,
@@ -327,7 +333,7 @@ describe('interactive ACP bridge', () => {
       .rejects.toThrow(/session modes are unavailable/)
   })
 
-  it('routes permission configuration through the session command and refuses a running switch', async () => {
+  it('routes permission configuration through the session command and applies a running switch', async () => {
     harness = await makeHarness(['hang'])
     harness.ctx.provide('shell', {
       sandboxMode: 'workspace-write',
@@ -358,11 +364,20 @@ describe('interactive ACP bridge', () => {
       prompt: [{ type: 'text', text: 'keep running' }],
     })
     await vi.waitFor(() => { expect(harness!.adapter.requests).toHaveLength(1) })
-    await expect(harness.client.setSessionConfigOption({
+    const runningSwitch = await harness.client.setSessionConfigOption({
       sessionId: created.sessionId,
       configId: PERMISSION_CONFIG_ID,
       value: 'workspace-write',
-    })).rejects.toThrow(/cannot change while the session is running/)
+    })
+    expect(runningSwitch.configOptions).toContainEqual(expect.objectContaining({
+      id: PERMISSION_CONFIG_ID,
+      currentValue: 'workspace-write',
+    }))
+    await vi.waitFor(() => {
+      expect(harness!.updates).toContainEqual(expect.objectContaining({
+        update: expect.objectContaining({ sessionUpdate: 'config_option_update' }),
+      }))
+    })
     await harness.client.cancel({ sessionId: created.sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
   })
@@ -546,7 +561,10 @@ describe('interactive ACP bridge', () => {
     await vi.waitFor(() => {
       expect(harness!.updates).toContainEqual({
         sessionId,
-        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'image', data: 'AQ==', mimeType: 'image/png' } },
+        update: expect.objectContaining({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'image', data: 'AQ==', mimeType: 'image/png' },
+        }),
       })
     })
     const warnings: string[] = []
@@ -578,10 +596,10 @@ describe('interactive ACP bridge', () => {
     expect(loaded.modes).toMatchObject({ currentModeId: 'default' })
     expect(harness.updates).toContainEqual({
       sessionId,
-      update: {
+      update: expect.objectContaining({
         sessionUpdate: 'user_message_chunk',
         content: { type: 'image', data: 'AQ==', mimeType: 'image/png' },
-      },
+      }),
     })
     await harness.client.closeSession({ sessionId })
     const resumed = await harness.client.resumeSession({ sessionId, cwd })

@@ -12,11 +12,12 @@ import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from '@deepseek-ai/schemastery'
 import {
-  AgentSideConnection,
+  agent,
+  methods,
   ndJsonStream,
   PROTOCOL_VERSION,
   RequestError,
-  type Agent as AcpAgent,
+  type AgentConnection,
   type AnyMessage,
   type AuthenticateRequest,
   type AvailableCommand,
@@ -174,6 +175,23 @@ interface ContinuableDrain {
   drainContinuableDescendants(parents: readonly Agent[]): Promise<void>
 }
 
+interface BridgeHandlers {
+  initialize(params: InitializeRequest): Promise<InitializeResponse>
+  authenticate(params: AuthenticateRequest): Promise<void>
+  newSession(params: NewSessionRequest, signal: AbortSignal): Promise<NewSessionResponse>
+  listSessions(params: ListSessionsRequest, signal: AbortSignal): Promise<ListSessionsResponse>
+  loadSession(params: LoadSessionRequest, signal: AbortSignal): Promise<LoadSessionResponse>
+  resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<ResumeSessionResponse>
+  closeSession(params: CloseSessionRequest, signal: AbortSignal): Promise<CloseSessionResponse>
+  setSessionConfigOption(
+    params: SetSessionConfigOptionRequest,
+    signal: AbortSignal,
+  ): Promise<SetSessionConfigOptionResponse>
+  setSessionMode(params: SetSessionModeRequest, signal: AbortSignal): Promise<SetSessionModeResponse>
+  prompt(params: PromptRequest, signal: AbortSignal): Promise<PromptResponse>
+  cancel(params: CancelNotification): Promise<void>
+}
+
 /**
  * Mount the editor-facing ACP server.
  * @param ctx - Cordis context carrying the agent, command, skill, and tool registries.
@@ -193,7 +211,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   let terminalOutputEnabled = false
   let imagePromptEnabled = false
   let elicitationEnabled = false
-  let conn: AgentSideConnection
+  let booleanConfigEnabled = false
+  let conn: AgentConnection
   let drainTail = Promise.resolve()
 
   const assertOpen = (): void => {
@@ -213,10 +232,10 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   }
 
   const notify = (record: SessionRecord, update: SessionNotification['update']): void => {
-    const delivery = record.outputTail.then(() => conn.sessionUpdate({
-      sessionId: record.agent.session.id,
-      update,
-    }))
+    const delivery = record.outputTail.then(() => conn.client.notify(
+      methods.client.session.update,
+      { sessionId: record.agent.session.id, update },
+    ))
     /* v8 ignore start -- The SDK contains notification transport failures; this protects alternate Stream implementations. */
     record.outputTail = delivery.catch((error: unknown) => {
       logger.warn(`acp-interactive: session/update failed: ${String(error)}`)
@@ -228,12 +247,13 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     record: SessionRecord,
     sessionUpdate: 'agent_message_chunk' | 'user_message_chunk',
     block: Extract<ContentBlock, { type: 'image' }>,
+    messageId: string,
   ): void => {
     const delivery = record.outputTail.then(async () => {
       const content = await projectImage(ctx, block.attachment)
-      await conn.sessionUpdate({
+      await conn.client.notify(methods.client.session.update, {
         sessionId: record.agent.session.id,
-        update: { sessionUpdate, content },
+        update: { sessionUpdate, content, messageId },
       })
     })
     record.outputTail = delivery.catch((error: unknown) => {
@@ -347,8 +367,10 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     commandCatalogController: undefined,
   })
 
-  const configOptions = (record: SessionRecord): Promise<SessionConfigOption[]> =>
-    sessionConfigOptions(ctx, record.agent, record.selection.current)
+  const configOptions = async (record: SessionRecord): Promise<SessionConfigOption[]> => {
+    const options = await sessionConfigOptions(ctx, record.agent, record.selection.current)
+    return booleanConfigEnabled ? options : options.filter(option => option.type !== 'boolean')
+  }
 
   const modeState = (record: SessionRecord): SessionModeState | undefined => {
     const modes = sessionModes(ctx, record.agent)
@@ -435,8 +457,10 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const resumeRecord = async (
     params: LoadSessionRequest | ResumeSessionRequest,
     replay: boolean,
+    signal: AbortSignal,
   ): Promise<{ record: SessionRecord; events: readonly SessionEvent[] }> => {
     assertOpen()
+    signal.throwIfAborted()
     validateRestoredSessionParams(params)
     const sessionId = SessionId(params.sessionId)
     if (sessions.has(sessionId) || startingSessions.has(sessionId)) {
@@ -455,6 +479,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     startingSessions.set(sessionId, start)
     try {
       const snapshot = await ctx.sessionQuery.readSession(sessionId)
+      signal.throwIfAborted()
       if (snapshot.session.cwd === undefined) {
         throw invalidParams(`session has no recorded cwd: ${sessionId}`)
       }
@@ -462,20 +487,23 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         throw invalidParams(`cwd does not match session ${sessionId}: expected ${snapshot.session.cwd}`)
       }
       if (replay) validateReplayableHistory(snapshot.events)
+      const operationSignal = AbortSignal.any([start.controller.signal, signal])
       const handle = await agents.resume({
         resumeSessionId: sessionId,
         agentOptions: agentOptions(config),
-        signal: start.controller.signal,
+        signal: operationSignal,
         setup: installSelection,
       })
-      if (closed || start.controller.signal.aborted) {
+      if (closed || operationSignal.aborted) {
         await handle.dispose()
+        operationSignal.throwIfAborted()
         throw internalError('connection closed during session restore')
       }
       const record = makeRecord(handle)
       sessions.set(sessionId, record)
       return { record, events: snapshot.events }
     } catch (error: unknown) {
+      signal.throwIfAborted()
       if (error instanceof RequestError) throw error
       throw internalError(`session restore failed: ${errorChain(error)}`)
     } finally {
@@ -546,7 +574,14 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       for (const update of projectEvent(record, event)) notify(record, update)
       if (event.type === 'assistant/message') {
         for (const block of event.data.message.content) {
-          if (block.type === 'image') notifyImage(record, 'agent_message_chunk', block)
+          if (block.type === 'image') {
+            notifyImage(
+              record,
+              'agent_message_chunk',
+              block,
+              assistantMessageId(record.agent.session.id, event.data.turn, event.data.step),
+            )
+          }
         }
       }
       if (event.type === 'plan/mode') {
@@ -579,14 +614,18 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   ctx.on('approval/request', (request, next) => {
     const record = ownedRecord(request.agent)
     if (record === undefined || request.callId === undefined) return next()
-    return conn.requestPermission({
+    return conn.client.request(
+      methods.client.session.requestPermission,
+      {
       sessionId: record.agent.session.id,
       toolCall: { toolCallId: request.callId },
       options: [
         { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
         { optionId: 'reject-once', name: 'Reject', kind: 'reject_once' },
       ],
-    }).then(({ outcome }) => {
+      },
+      request.signal === undefined ? undefined : { cancellationSignal: request.signal },
+    ).then(({ outcome }) => {
       if (outcome.outcome === 'cancelled') return 'cancelled'
       return outcome.optionId === 'allow-once' ? 'allowed-once' : 'rejected'
     })
@@ -608,6 +647,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         notify(record, {
           sessionUpdate: 'agent_message_chunk',
           content: { type: 'text', text: rendered },
+          messageId: `command:${randomUUID()}`,
         })
         await record.outputTail
       }
@@ -617,6 +657,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       notify(record, {
         sessionUpdate: 'agent_message_chunk',
         content: { type: 'text', text: `Error: command failed: ${renderThrown(error)}` },
+        messageId: `command:${randomUUID()}`,
       })
       await record.outputTail
       return { stopReason: 'end_turn' }
@@ -627,17 +668,18 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     }
   }
 
-  const makeAgent = (connection: AgentSideConnection): AcpAgent => {
-    conn = connection
+  const makeAgent = (): BridgeHandlers => {
     return {
       initialize(params: InitializeRequest): Promise<InitializeResponse> {
         terminalOutputEnabled = params.clientCapabilities?._meta?.['terminal_output'] === true
         imagePromptEnabled = ctx.get('attachments') !== undefined
         elicitationEnabled = params.clientCapabilities?.elicitation?.form !== undefined
           && params.clientCapabilities.elicitation.form !== null
+        booleanConfigEnabled = params.clientCapabilities?.session?.configOptions?.boolean !== undefined
+          && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.1.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.6.0' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
@@ -655,7 +697,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         return Promise.resolve()
       },
 
-      async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+      async newSession(params: NewSessionRequest, signal: AbortSignal): Promise<NewSessionResponse> {
         assertOpen()
         validateSessionParams(params)
         const sessionId = SessionId(randomUUID())
@@ -667,16 +709,18 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         startingSessions.set(sessionId, start)
         try {
+          const operationSignal = AbortSignal.any([start.controller.signal, signal])
           const handle = await agents.create({
             sessionId,
             meta: { cwd: params.cwd },
             agentOptions: agentOptions(config),
-            signal: start.controller.signal,
+            signal: operationSignal,
             setup: installSelection,
           })
           /* v8 ignore next 4 -- a real stdio close can race the asynchronous agent factory. */
-          if (closed) {
+          if (closed || operationSignal.aborted) {
             await handle.dispose()
+            operationSignal.throwIfAborted()
             throw internalError('connection closed during session/new')
           }
           const record = makeRecord(handle)
@@ -695,7 +739,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
       },
 
-      async listSessions(params: ListSessionsRequest): Promise<ListSessionsResponse> {
+      async listSessions(params: ListSessionsRequest, signal: AbortSignal): Promise<ListSessionsResponse> {
         assertOpen()
         if (params.cursor !== undefined && params.cursor !== null) {
           throw invalidParams('session/list cursors are not supported')
@@ -703,10 +747,11 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         if (params.cwd !== undefined && params.cwd !== null && !isAbsolute(params.cwd)) {
           throw invalidParams(`cwd must be an absolute path: ${params.cwd}`)
         }
-        const records = (await ctx.sessionQuery.listSessions())
+        const records = (await ctx.sessionQuery.listSessions(signal))
           .filter(record => record.header.cwd !== undefined
             && (params.cwd === undefined || params.cwd === null || record.header.cwd === params.cwd))
         const titleResults = await ctx.sessionQuery.readTitleSnapshots(records.map(record => record.header.id))
+        signal.throwIfAborted()
         const titles = new Map(titleResults.flatMap((result) => {
           if (result.status === 'rejected') {
             logger.warn(`acp-interactive: title read failed for session ${result.sessionId}: ${errorChain(result.reason)}`)
@@ -726,8 +771,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
       },
 
-      async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
-        const { record, events } = await resumeRecord(params, true)
+      async loadSession(params: LoadSessionRequest, signal: AbortSignal): Promise<LoadSessionResponse> {
+        const { record, events } = await resumeRecord(params, true, signal)
         try {
           const initialConfig = serializeConfig(record, () => configOptions(record))
           for (const update of await replayHistory(ctx, record, events)) notify(record, update)
@@ -741,8 +786,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
       },
 
-      async resumeSession(params: ResumeSessionRequest): Promise<ResumeSessionResponse> {
-        const { record } = await resumeRecord(params, false)
+      async resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<ResumeSessionResponse> {
+        const { record } = await resumeRecord(params, false, signal)
         const initialConfig = serializeConfig(record, () => configOptions(record))
         await refreshCommands(record)
         const [options] = await Promise.all([initialConfig, record.outputTail])
@@ -750,13 +795,15 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         return { configOptions: options, ...modes === undefined ? {} : { modes } }
       },
 
-      async closeSession(params: CloseSessionRequest): Promise<CloseSessionResponse> {
+      async closeSession(params: CloseSessionRequest, signal: AbortSignal): Promise<CloseSessionResponse> {
         assertOpen()
+        signal.throwIfAborted()
         const sessionId = SessionId(params.sessionId)
         const starting = startingSessions.get(sessionId)
         if (starting !== undefined) {
           starting.controller.abort(new Error('ACP session closed during restore'))
           await starting.done
+          signal.throwIfAborted()
         }
         const record = sessions.get(sessionId)
         if (record === undefined) {
@@ -764,13 +811,19 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           throw invalidParams(`unknown session: ${sessionId}`)
         }
         await closeRecord(record)
+        signal.throwIfAborted()
         return {}
       },
 
-      setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
+      setSessionConfigOption(
+        params: SetSessionConfigOptionRequest,
+        signal: AbortSignal,
+      ): Promise<SetSessionConfigOptionResponse> {
         assertOpen()
+        signal.throwIfAborted()
         const record = requireSession(SessionId(params.sessionId))
         return serializeConfig(record, async () => {
+          signal.throwIfAborted()
           /* v8 ignore next -- a close racing after requireSession is a defensive cross-request guard. */
           if (record.closing !== undefined) throw invalidParams(`session is closing: ${record.agent.session.id}`)
           if (params.configId === MODEL_CONFIG_ID) {
@@ -786,6 +839,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             }
             try {
               const resolved = await ctx.llm.resolveCallConfig(route)
+              signal.throwIfAborted()
               record.selection.current = {
                 provider: resolved.provider,
                 model: resolved.model,
@@ -815,6 +869,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
                 model: current.model,
                 ...reasoningEffort === undefined ? {} : { reasoningEffort },
               })
+              signal.throwIfAborted()
               record.selection.current = {
                 provider: current.provider,
                 model: current.model,
@@ -830,18 +885,21 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
             if (!permissions.names.includes(params.value)) {
               throw invalidParams(`unknown permission preset: ${params.value}`)
             }
-            if (record.agent.status !== 'idle' || record.inflight !== undefined) {
-              throw invalidParams('permission configuration cannot change while the session is running')
-            }
+            // A running session accepts the switch: the preset events commit to the
+            // durable log immediately and take effect on the next confined call and
+            // approval request, so the editor permission selector works at any time.
             const controller = new AbortController()
+            const executionSignal = AbortSignal.any([controller.signal, signal])
             const execution = await commands.execute(
               record.agent,
               `/permission ${params.value}`,
               [],
-              controller.signal,
+              executionSignal,
             )
+            signal.throwIfAborted()
             if (execution === undefined) throw internalError('permission command is unavailable')
             if (execution.result.kind === 'error') throw invalidParams(execution.result.text)
+            notifyConfigOptions(record)
           } else {
             throw invalidParams(`unknown session configuration option: ${params.configId}`)
           }
@@ -849,8 +907,9 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         })
       },
 
-      setSessionMode(params: SetSessionModeRequest): Promise<SetSessionModeResponse> {
+      async setSessionMode(params: SetSessionModeRequest, signal: AbortSignal): Promise<SetSessionModeResponse> {
         assertOpen()
+        signal.throwIfAborted()
         const record = requireSession(SessionId(params.sessionId))
         const planMode = planModeDirectory(ctx)
         if (planMode === undefined) throw invalidParams('session modes are unavailable')
@@ -859,11 +918,14 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         planMode.set(record.agent, params.modeId === PLAN_MODE_ID)
         notifyMode(record, params.modeId)
-        return Promise.resolve({})
+        await record.outputTail
+        signal.throwIfAborted()
+        return {}
       },
 
-      async prompt(params: PromptRequest): Promise<PromptResponse> {
+      async prompt(params: PromptRequest, signal: AbortSignal): Promise<PromptResponse> {
         assertOpen()
+        signal.throwIfAborted()
         const record = requireSession(SessionId(params.sessionId))
         if (record.configuring > 0) throw invalidParams('a session configuration change is in flight')
         if (record.inflight !== undefined) throw invalidParams('a prompt is already in flight for this session')
@@ -876,6 +938,23 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           finish: () => { admissionDone.resolve() },
         }
         record.inflight = admission
+        const requestAborted = (): void => {
+          const current = record.inflight
+          if (current?.kind === 'admission' || current?.kind === 'command') {
+            current.cancelRequested = true
+            current.controller.abort(signal.reason)
+          } else {
+            /* The listener is removed before this exact prompt releases its inflight slot. */
+            const agentInflight = current as AgentInflight
+            agentInflight.cancelRequested = true
+            record.agent.cancel({ kind: 'user' })
+            settleAfterQuiescence(record, agentInflight)
+          }
+        }
+        signal.addEventListener('abort', requestAborted, { once: true })
+        /* v8 ignore next -- the SDK invokes a request handler before a later cancellation notification can run. */
+        if (signal.aborted) requestAborted()
+        try {
         let content: ContentBlock[]
         let commandText: string | undefined
         let dispatchCommand = false
@@ -955,6 +1034,9 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         settleAfterQuiescence(record, inflight)
         return { stopReason: await completion.promise }
+        } finally {
+          signal.removeEventListener('abort', requestAborted)
+        }
       },
 
       cancel(params: CancelNotification): Promise<void> {
@@ -983,7 +1065,22 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     Writable.toWeb(process.stdout) as WritableStream<Uint8Array>,
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   )
-  conn = new AgentSideConnection(makeAgent, observeOutbound(baseStream, announceInitialCommands))
+  const handlers = makeAgent()
+  const app = agent({ name: 'deepseek-harness-interactive-acp' })
+    .onRequest(methods.agent.initialize, ({ params }) => handlers.initialize(params))
+    .onRequest(methods.agent.authenticate, ({ params }) => handlers.authenticate(params))
+    .onRequest(methods.agent.session.new, ({ params, signal }) => handlers.newSession(params, signal))
+    .onRequest(methods.agent.session.list, ({ params, signal }) => handlers.listSessions(params, signal))
+    .onRequest(methods.agent.session.load, ({ params, signal }) => handlers.loadSession(params, signal))
+    .onRequest(methods.agent.session.resume, ({ params, signal }) => handlers.resumeSession(params, signal))
+    .onRequest(methods.agent.session.close, ({ params, signal }) => handlers.closeSession(params, signal))
+    .onRequest(methods.agent.session.setConfigOption, ({ params, signal }) => (
+      handlers.setSessionConfigOption(params, signal)
+    ))
+    .onRequest(methods.agent.session.setMode, ({ params, signal }) => handlers.setSessionMode(params, signal))
+    .onRequest(methods.agent.session.prompt, ({ params, signal }) => handlers.prompt(params, signal))
+    .onNotification(methods.agent.session.cancel, ({ params }) => handlers.cancel(params))
+  conn = app.connect(observeOutbound(baseStream, announceInitialCommands))
 
   ctx.inject(['userQuestions'], (questionCtx) => {
     const dispose = questionCtx.userQuestions.registerProvider(acpQuestionProvider(
@@ -992,7 +1089,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         return ownedRecord(request.agent)?.agent.session.id
       },
       () => elicitationEnabled,
-      request => conn.unstable_createElicitation(request),
+      (request, options) => conn.client.request(methods.client.elicitation.create, request, options),
     ))
     questionCtx.effect(() => dispose, 'acp-interactive: user-questions provider')
   })
@@ -1027,6 +1124,12 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     return quiescing
   }
 
+  conn.signal.addEventListener('abort', () => {
+    void quiesce().catch((error: unknown) => {
+      logger.warn(`acp-interactive: teardown failed: ${String(error)}`)
+    })
+  }, { once: true })
+
   void conn.closed
     /* v8 ignore start -- the SDK resolves `closed` for input failures; this guard protects alternate Stream implementations. */
     .catch((error: unknown) => { logger.warn(`acp-interactive: connection closed with an error: ${String(error)}`) })
@@ -1041,11 +1144,16 @@ function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotifi
   switch (event.type) {
     case 'assistant/chunk': {
       const chunk = event.data.chunk
+      const messageId = assistantMessageId(record.agent.session.id, event.data.turn, event.data.step)
       if (chunk.type === 'text-delta') {
-        return [{ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk.text } }]
+        return [{ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk.text }, messageId }]
       }
       if (chunk.type === 'reasoning-delta') {
-        return [{ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: chunk.text } }]
+        return [{
+          sessionUpdate: 'agent_thought_chunk',
+          content: { type: 'text', text: chunk.text },
+          messageId: thoughtMessageId(messageId),
+        }]
       }
       if (chunk.type === 'usage') return projectUsage(record, event.data.turn, event.data.step, chunk.usage)
       return []
@@ -1100,11 +1208,16 @@ async function replayHistory(
     switch (event.type) {
       case 'user/message':
         if (event.data.source.kind === 'user') {
-          updates.push(...await replayMessageContent(ctx, 'user_message_chunk', event.data.content))
+          updates.push(...await replayMessageContent(ctx, 'user_message_chunk', event.data.content, event.data.id))
         }
         break
       case 'assistant/message':
-        updates.push(...await replayMessageContent(ctx, 'agent_message_chunk', event.data.message.content))
+        updates.push(...await replayMessageContent(
+          ctx,
+          'agent_message_chunk',
+          event.data.message.content,
+          assistantMessageId(record.agent.session.id, event.data.turn, event.data.step),
+        ))
         if (event.data.usage !== undefined) lastUsage = event
         break
       case 'tool/call':
@@ -1147,17 +1260,22 @@ async function replayMessageContent(
   ctx: Context,
   kind: 'user_message_chunk' | 'agent_message_chunk',
   content: readonly ContentBlock[],
+  messageId: string,
 ): Promise<SessionNotification['update'][]> {
   const updates: SessionNotification['update'][] = []
   for (const block of content) {
     switch (block.type) {
       case 'text':
-        updates.push({ sessionUpdate: kind, content: { type: 'text', text: block.text } })
+        updates.push({ sessionUpdate: kind, content: { type: 'text', text: block.text }, messageId })
         break
       case 'reasoning':
         /* v8 ignore next -- validateReplayableHistory rejects reasoning in a user message first. */
         if (kind !== 'agent_message_chunk') throw new Error('unsupported restored user message content: reasoning')
-        updates.push({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: block.text } })
+        updates.push({
+          sessionUpdate: 'agent_thought_chunk',
+          content: { type: 'text', text: block.text },
+          messageId: thoughtMessageId(messageId),
+        })
         break
       case 'tool-call':
       case 'tool-result':
@@ -1168,7 +1286,7 @@ async function replayMessageContent(
         /* v8 ignore next -- assistant tool blocks are represented by their paired tool events. */
         break
       case 'image':
-        updates.push({ sessionUpdate: kind, content: await projectImage(ctx, block.attachment) })
+        updates.push({ sessionUpdate: kind, content: await projectImage(ctx, block.attachment), messageId })
         break
       /* v8 ignore next 2 -- validateReplayableHistory rejects merge-extensible content first. */
       default:
@@ -1214,7 +1332,6 @@ function projectUsage(
   const used = usage.inputTokens
     + (usage.cacheReadTokens ?? 0)
     + (usage.cacheWriteTokens ?? 0)
-    + usage.outputTokens
   const sample = `${turn}:${step}:${used}`
   if (record.usage.lastSample === sample) return []
   record.usage.lastSample = sample
@@ -1222,6 +1339,14 @@ function projectUsage(
   return record.usage.size === undefined
     ? []
     : [{ sessionUpdate: 'usage_update', size: record.usage.size, used }]
+}
+
+function assistantMessageId(sessionId: SessionId, turn: number, step: number): string {
+  return `${sessionId}:assistant:${turn}:${step}`
+}
+
+function thoughtMessageId(messageId: string): string {
+  return `${messageId}:thought`
 }
 
 /**

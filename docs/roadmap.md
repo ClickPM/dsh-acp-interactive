@@ -6,11 +6,13 @@
 
 ## 当前基线
 
-版本 `0.5.3` 提供独立的 `dsh-acp-interactive` 启动命令、包内 Cordis profile 和按平台互斥的原生 shell。用户无需下载或修改 DeepSeek Harness 源码，即可在 Zed 中使用文本与 reasoning 流、工具卡片、diff、审批、计划、模型与 reasoning effort 选择、权限 preset、图片、resource link、结构化提问、持久 session、官方人类斜杠命令以及 user-invocable skill。
+版本 `0.6.0` 提供独立的 `dsh-acp-interactive` 启动命令、包内 Cordis profile 和按平台互斥的原生 shell，并以 `@agentclientprotocol/sdk 1.4.0` 作为稳定 ACP v1 基线。用户无需下载或修改 DeepSeek Harness 源码，即可在 Zed 中使用文本与 reasoning 流、工具卡片、diff、审批、计划、模型与 reasoning effort 选择、权限 preset、图片、resource link、结构化提问、持久 session、官方人类斜杠命令以及 user-invocable skill。
 
 当前实现以 ACP v1 为生产协议。ACP v2 仍属于 Draft，不作为近期功能的默认基线。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
 
 ## 阶段 A：对齐最新稳定 ACP v1
+
+状态：已在 `0.6.0` 完成。实现与兼容边界见 [ACP v1 Agent Note](agent-notes/2026-08-26-acp-v1-baseline.md) 和 [Zed 兼容矩阵](compatibility.md)。
 
 ### 目标
 

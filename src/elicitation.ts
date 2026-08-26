@@ -1,9 +1,10 @@
 /** ACP form elicitation provider for the dsh user-questions service. */
 
-import type {
-  CreateElicitationRequest,
+import {
   CreateElicitationResponse,
-  ElicitationPropertySchema,
+  type CreateElicitationRequest,
+  type ElicitationPropertySchema,
+  type SendRequestOptions,
 } from '@agentclientprotocol/sdk'
 import { UserQuestionError } from '@deepseek-ai/dsh-user-questions'
 import type {
@@ -140,7 +141,10 @@ async function awaitElicitation(
 export function acpQuestionProvider(
   owns: (request: AskUserQuestionRequest) => string | undefined,
   enabled: () => boolean,
-  create: (request: CreateElicitationRequest) => Promise<CreateElicitationResponse>,
+  create: (
+    request: CreateElicitationRequest,
+    options?: SendRequestOptions,
+  ) => Promise<CreateElicitationResponse>,
 ): UserQuestionProvider {
   return {
     async ask(request): Promise<AskUserQuestionAnswer> {
@@ -152,8 +156,14 @@ export function acpQuestionProvider(
         throw new UserQuestionError('the ACP client did not advertise form elicitation', 'NO_PROVIDER')
       }
       const { fields, wire } = formRequest(request, sessionId)
-      const response = await awaitElicitation(request, create(wire))
-      if (response.action !== 'accept') {
+      const response = await awaitElicitation(request, create(
+        wire,
+        request.signal === undefined ? undefined : { cancellationSignal: request.signal },
+      ))
+      if (!CreateElicitationResponse.isAccept(response)) {
+        if (!CreateElicitationResponse.isDecline(response) && !CreateElicitationResponse.isCancel(response)) {
+          throw new UserQuestionError('elicitation returned an unsupported action', 'INVALID_ANSWER')
+        }
         throw new UserQuestionError('the user dismissed the question without answering', 'ASK_CANCELLED')
       }
       return acceptedAnswer(fields, response)

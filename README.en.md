@@ -66,15 +66,17 @@ Text, resource-link, and inline raster-image prompts are supported. Resource lin
 
 When `ctx.planMode` is composed, new, loaded, and resumed sessions advertise `default` and `plan` modes. `session/set_mode` delegates to that service, and committed `plan/mode` events publish `current_mode_update`; the transport keeps no separate mode state.
 
-When `ctx.userQuestions` is composed, the plugin registers a provider for its exact owned root agents. Clients advertising unstable ACP form elicitation receive structured questions, choices, multi-select fields, optional free text, and plan-review detail. Decline or dismissal returns `ASK_CANCELLED`, turn cancellation returns `ASK_ABORTED`, and clients without form elicitation fail explicitly.
+When `ctx.userQuestions` is composed, the plugin registers a provider for its exact owned root agents. Clients advertising stable ACP form elicitation receive structured questions, choices, multi-select fields, optional free text, and plan-review detail. Decline or dismissal returns `ASK_CANCELLED`, turn or request cancellation returns `ASK_ABORTED`, unknown future actions fail closed, and clients without form elicitation fail explicitly.
 
 ## Session configuration
 
 `session/new`, `session/load`, and `session/resume` return the complete ACP `configOptions` list. The model selector groups each adapter's advisory catalog by provider and encodes the complete provider/model route in each value. The selected route applies at the next prompt-assembly boundary; a step already assembling or running keeps its captured route. Restored sessions use the latest logged request header, and an unadvertised restored route remains a current-only row instead of being replaced by the composition default. Client values not present in the current directory are rejected.
 
+Configuration projection accepts ACP 1.x's `model_config` category and gates boolean options on the client's `session.configOptions.boolean` capability. The current composition has no real boolean domain option, so it does not invent or advertise a toggle; unknown boolean configuration and malformed value types are rejected explicitly.
+
 When the selected model advertises reasoning efforts, a `thought_level` selector exposes `Default` plus every adapter-owned effort. The selected value applies at the next prompt-assembly boundary. Switching models resets the explicit effort to the new route's default; restored sessions recover the effort from the latest request header, including a current-only historical value when its catalog row or all reasoning metadata is unavailable.
 
-When `ctx.permissionPresets` is composed, a permission selector exposes its configured presets. A switch executes the existing `/permission` write path, so the preset, sandbox mode, approval policy, live approval state, and durable events stay aligned. A running session refuses permission changes. Configuration requests are serialized per session, and a prompt cannot pass an unsettled switch. Adapter topology changes and direct `/permission` commands publish a full `config_option_update`.
+When `ctx.permissionPresets` is composed, a permission selector exposes its configured presets. A switch executes the existing `/permission` write path, so the preset, sandbox mode, approval policy, live approval state, and durable events stay aligned. A running session also accepts permission changes: the switch commits durable events immediately and takes effect on subsequent confined calls and approval requests. Configuration requests are serialized per session, and a prompt cannot pass an unsettled switch. Adapter topology changes, selector switches, and direct `/permission` commands publish a full `config_option_update`.
 
 ## Tool execution and permissions
 
@@ -99,6 +101,8 @@ After installation, register the installed command directly in Zed. On Windows, 
 ```
 
 Zed starts the server with the workspace as cwd. JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index. Multiple editor processes can share the JSONL source of truth without contending for the derived index. No DeepSeek Harness checkout or DeepSeek-specific Zed code is required.
+
+See the [Zed compatibility matrix](docs/compatibility.en.md) for supported versions and verification status. This release uses the stable ACP v1 schema from SDK `1.4.0` as its baseline.
 
 An explicitly configured image-capable model must declare its input modalities. For example:
 
@@ -158,7 +162,7 @@ Changing provider or model starts using that route's cache identity on the next 
 - `session/delete` is not advertised. The persistence Service Definition has no backend-independent deletion method; direct JSONL or SQLite manipulation in this transport would bypass persistence ownership and reconciliation.
 - `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
 - Audio and embedded-resource prompt blocks fail instead of degrading silently. Tool-result image cards remain text-only even though prompt and message-history images are supported.
-- ACP form elicitation is unstable protocol and is available only when the client advertises it.
+- Session cost is sent only after a Harness backend supplies a reliable cumulative amount and currency; the bridge does not estimate cost from token prices.
 - MCP servers and additional directories are deferred.
 - Terminal output is delivered at tool completion rather than incrementally.
 

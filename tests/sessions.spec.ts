@@ -166,10 +166,10 @@ describe('interactive ACP persisted sessions', () => {
       'user_message_chunk:historic question',
       'agent_message_chunk:done',
     ])
-    expect(harness.updates.map(update => update.update)).toContainEqual({
+    expect(harness.updates.map(update => update.update)).toContainEqual(expect.objectContaining({
       sessionUpdate: 'agent_thought_chunk',
       content: { type: 'text', text: 'inspect first' },
-    })
+    }))
     expect(harness.updates.map(update => update.update)).toContainEqual({
       sessionUpdate: 'plan',
       entries: [{ content: 'resume work', priority: 'medium', status: 'in_progress' }],
@@ -181,7 +181,7 @@ describe('interactive ACP persisted sessions', () => {
     expect(harness.updates.map(update => update.update)).toContainEqual({
       sessionUpdate: 'usage_update',
       size: 128_000,
-      used: 46,
+      used: 42,
     })
     await expect(harness.client.prompt({
       sessionId,
@@ -330,7 +330,7 @@ describe('interactive ACP persisted sessions', () => {
     await harness.closeClientTransport()
     await aborted.promise
     release.resolve(undefined)
-    await expect(resuming).rejects.toThrow(/connection closed during session restore/)
+    await expect(resuming).rejects.toThrow(/ACP connection closed/)
     await vi.waitFor(() => { expect(harness!.ctx.agents.get(id)).toBeUndefined() })
   })
 

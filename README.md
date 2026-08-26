@@ -66,15 +66,17 @@ ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 c
 
 组合 `ctx.planMode` 后，新建、加载和恢复的 session 会公布 `default` 与 `plan` mode。`session/set_mode` 委托该服务处理，已提交的 `plan/mode` 事件发布 `current_mode_update`；transport 不保留平行的 mode 状态。
 
-组合 `ctx.userQuestions` 后，插件会为自己精确拥有的根 agent 注册 provider。声明 unstable ACP form elicitation 的客户端会收到结构化问题、选项、多选字段、可选自由文本和 plan-review 详情。拒绝或关闭返回 `ASK_CANCELLED`，turn 取消返回 `ASK_ABORTED`，不支持 form elicitation 的客户端会明确失败。
+组合 `ctx.userQuestions` 后，插件会为自己精确拥有的根 agent 注册 provider。声明稳定 ACP form elicitation 的客户端会收到结构化问题、选项、多选字段、可选自由文本和 plan-review 详情。拒绝或关闭返回 `ASK_CANCELLED`，turn 或 request 取消返回 `ASK_ABORTED`，未知的未来 action 会失败关闭；不支持 form elicitation 的客户端会明确失败。
 
 ## Session 配置
 
 `session/new`、`session/load` 和 `session/resume` 返回完整的 ACP `configOptions` 列表。模型 selector 按 provider 对各 adapter 的建议目录分组，每个值编码完整的 provider/model route。所选 route 在下一次 prompt assembly 边界生效；已经进入 assembly 或正在运行的 step 保留已捕获 route。恢复的 session 使用最后一条已记录 request header；若目录不再公布该 route，它仍作为 current-only 行显示，不会被组合默认值替换。客户端提交不在当前目录中的值会被拒绝。
 
+配置投影接受 ACP 1.x 的 `model_config` category，并按客户端 `session.configOptions.boolean` 能力协商 boolean option。当前组合没有真实 boolean 领域配置，因此不会制造或公布开关；未知 boolean 配置与错误值类型均明确拒绝。
+
 当所选模型公布 reasoning effort 时，`thought_level` selector 会暴露 `Default` 和每个 adapter 自有 effort。所选值在下一次 prompt assembly 边界生效。切换模型会把显式 effort 重置为新 route 的默认值；恢复 session 时从最后一条 request header 恢复 effort，在对应目录行或全部 reasoning metadata 不可用时仍显示 current-only 历史值。
 
-组合 `ctx.permissionPresets` 后，权限 selector 会暴露其配置的 presets。切换复用现有 `/permission` 写路径，因此 preset、sandbox mode、approval policy、在线 approval 状态和持久事件保持一致。运行中的 session 拒绝权限变更。配置请求按 session 串行化，prompt 不能越过尚未结算的切换。Adapter topology 变化和直接执行 `/permission` 都会发布完整 `config_option_update`。
+组合 `ctx.permissionPresets` 后，权限 selector 会暴露其配置的 presets。切换复用现有 `/permission` 写路径，因此 preset、sandbox mode、approval policy、在线 approval 状态和持久事件保持一致。运行中的 session 也接受权限变更：切换立即写入持久事件，对后续受限调用与审批请求生效。配置请求按 session 串行化，prompt 不能越过尚未结算的切换。Adapter topology 变化、selector 切换和直接执行 `/permission` 都会发布完整 `config_option_update`。
 
 ## 工具执行与权限
 
@@ -99,6 +101,8 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 ```
 
 Zed 会以当前工作区作为 server cwd；JSONL session 存在该工作区的 `.sessions`，每个 server 进程使用独立的内存 SQLite session-query 索引。多个编辑器进程可以共享 JSONL 真源而不会争用派生索引。无需 DeepSeek Harness checkout，也无需 Zed 编写 DeepSeek 专用代码。
+
+受支持版本与能力验证状态见 [Zed 兼容矩阵](docs/compatibility.md)。当前发布以 ACP SDK `1.4.0` 的稳定 v1 schema 为基线。
 
 显式配置支持图片的模型时，必须声明输入模态。例如：
 
@@ -158,7 +162,7 @@ Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改
 - 未声明 `session/delete`。持久化 Service Definition 尚无跨 backend 的删除方法；transport 直接操作 JSONL 或 SQLite 会绕过持久化所有权与对账。
 - `session/list` 当前返回一个完整页面且省略 `updatedAt`；稳定的元数据 cursor 与低成本最后活动时间观察应由 session-query 能力提供。
 - 音频和 embedded-resource prompt block 会失败，不会静默降级。Prompt 与消息历史已经支持图片，但工具结果图片卡片仍只投影文字。
-- ACP form elicitation 属于不稳定协议，仅在客户端明确声明支持时可用。
+- Session cost 只在 Harness 后端提供可靠的累计金额和币种后才会发送；当前不会按 token 价格猜测成本。
 - MCP server 和 additional directory 延后实现。
 - Terminal 输出在工具完成时发送，尚未增量推送。
 

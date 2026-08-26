@@ -6,11 +6,13 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `0.5.3` ships a standalone `dsh-acp-interactive` command, a package-owned Cordis profile, and one mutually exclusive native shell per platform. Users can access text and reasoning streams, tool cards, diffs, approvals, plans, model and reasoning-effort selection, permission presets, images, resource links, structured questions, persistent sessions, official human slash commands, and user-invocable skills in Zed without downloading or modifying the DeepSeek Harness source.
+Version `0.6.0` ships a standalone `dsh-acp-interactive` command, a package-owned Cordis profile, one mutually exclusive native shell per platform, and `@agentclientprotocol/sdk 1.4.0` as its stable ACP v1 baseline. Users can access text and reasoning streams, tool cards, diffs, approvals, plans, model and reasoning-effort selection, permission presets, images, resource links, structured questions, persistent sessions, official human slash commands, and user-invocable skills in Zed without downloading or modifying the DeepSeek Harness source.
 
 Production uses ACP v1. ACP v2 remains a Draft and is not the near-term default. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 
 ## Stage A: Align with the Latest Stable ACP v1
+
+Status: completed in `0.6.0`. See the [ACP v1 Agent Note](agent-notes/2026-08-26-acp-v1-baseline.md) and [Zed compatibility matrix](compatibility.en.md) for implementation and compatibility boundaries.
 
 ### Objective
 

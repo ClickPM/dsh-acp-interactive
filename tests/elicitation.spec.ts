@@ -94,6 +94,10 @@ describe('ACP user-question elicitation', () => {
       await expect(provider({ owns: 'session', create: () => Promise.resolve({ action }) }).ask(question))
         .rejects.toMatchObject({ code: 'ASK_CANCELLED' })
     }
+    await expect(provider({
+      owns: 'session',
+      create: () => Promise.resolve({ action: 'future-action' }),
+    }).ask(question)).rejects.toMatchObject({ code: 'INVALID_ANSWER' })
     const unknownOption = provider({
       owns: 'session', create: () => Promise.resolve({ action: 'accept', content: { q0: 'Unknown' } }),
     }).ask(question)

@@ -2,10 +2,13 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import {
-  ClientSideConnection,
+  client,
+  methods,
   ndJsonStream,
   type Agent as AcpAgent,
-  type Client,
+  type ClientSideConnection,
+  type ClientConnection,
+  type ClientContext,
   type CreateElicitationRequest,
   type CreateElicitationResponse,
   type RequestPermissionRequest,
@@ -35,6 +38,23 @@ import SessionQueryEngine, {
   type SessionSearchRequest,
 } from '@deepseek-ai/dsh-session-query'
 import * as InteractiveAcp from '../src/index.js'
+
+type BridgeClientMethod =
+  | 'initialize'
+  | 'authenticate'
+  | 'newSession'
+  | 'listSessions'
+  | 'loadSession'
+  | 'resumeSession'
+  | 'closeSession'
+  | 'setSessionConfigOption'
+  | 'setSessionMode'
+  | 'prompt'
+  | 'cancel'
+
+type BridgeClient = ClientContext & {
+  [Method in BridgeClientMethod]-?: NonNullable<ClientSideConnection[Method]>
+}
 
 interface PersistedEntry {
   meta: SessionHeader
@@ -206,7 +226,7 @@ export function maxTokensResponse(text: string): StreamChunk[] {
 export interface BridgeHarness {
   ctx: Context
   adapter: MockAdapter
-  client: ClientSideConnection
+  client: BridgeClient
   updates: Array<{ sessionId: string; update: SessionNotification['update'] }>
   permissionRequests: RequestPermissionRequest[]
   elicitationRequests: CreateElicitationRequest[]
@@ -256,7 +276,7 @@ export async function makeHarness(
   const harness: BridgeHarness = {
     ctx,
     adapter,
-    client: undefined as unknown as ClientSideConnection,
+    client: undefined as unknown as BridgeClient,
     updates,
     permissionRequests,
     elicitationRequests,
@@ -264,27 +284,32 @@ export async function makeHarness(
     onPermission: () => ({ outcome: { outcome: 'selected', optionId: 'allow-once' } }),
     onElicitation: () => ({ action: 'accept', content: {} }),
     onSessionUpdateError: undefined,
-    closeClientTransport: () => clientToAgentWriter.close(),
-    abortClientTransport: () => clientToAgentWriter.abort(new Error('client transport failed')),
+    closeClientTransport: () => {
+      void clientToAgentWriter.close()
+      return Promise.resolve()
+    },
+    abortClientTransport: () => {
+      void clientToAgentWriter.abort(new Error('client transport failed'))
+      return Promise.resolve()
+    },
     acpFiber: undefined as unknown as BridgeHarness['acpFiber'],
     loopFiber,
     dispose: () => ctx.fiber.dispose(),
   }
-  const makeClient = (_agent: AcpAgent): Client => ({
-    sessionUpdate(notification: SessionNotification): Promise<void> {
+  const clientApp = client({ name: 'acp-interactive-test-client' })
+    .onNotification(methods.client.session.update, ({ params: notification }) => {
       updates.push(notification)
       if (harness.onSessionUpdateError !== undefined) return Promise.reject(new Error('client update rejected'))
       return Promise.resolve()
-    },
-    requestPermission(request: RequestPermissionRequest): Promise<RequestPermissionResponse> {
+    })
+    .onRequest(methods.client.session.requestPermission, ({ params: request }) => {
       permissionRequests.push(request)
       return Promise.resolve(harness.onPermission(request))
-    },
-    unstable_createElicitation(request: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+    })
+    .onRequest(methods.client.elicitation.create, ({ params: request }) => {
       elicitationRequests.push(request)
       return Promise.resolve(harness.onElicitation(request))
-    },
-  })
+    })
 
   harness.acpFiber = await ctx.plugin({
     name: 'acp-interactive-test',
@@ -293,6 +318,53 @@ export async function makeHarness(
       InteractiveAcp.apply(inner, { ...config, stream: agentStream })
     },
   })
-  harness.client = new ClientSideConnection(makeClient, clientStream)
+  const clientConnection: ClientConnection = clientApp.connect(clientStream)
+  harness.closeClientTransport = () => {
+    void clientToAgentWriter.abort()
+    clientConnection.close()
+    return Promise.resolve()
+  }
+  harness.abortClientTransport = () => {
+    const error = new Error('client transport failed')
+    void clientToAgentWriter.abort(error)
+    clientConnection.close(error)
+    return Promise.resolve()
+  }
+  const agentContext = clientConnection.agent
+  harness.client = Object.assign(agentContext, {
+    initialize: (params: Parameters<AcpAgent['initialize']>[0]) => (
+      agentContext.request(methods.agent.initialize, params)
+    ),
+    authenticate: (params: Parameters<AcpAgent['authenticate']>[0]) => (
+      agentContext.request(methods.agent.authenticate, params)
+    ),
+    newSession: (params: Parameters<AcpAgent['newSession']>[0]) => (
+      agentContext.request(methods.agent.session.new, params)
+    ),
+    listSessions: (params: Parameters<ClientSideConnection['listSessions']>[0]) => (
+      agentContext.request(methods.agent.session.list, params)
+    ),
+    loadSession: (params: Parameters<NonNullable<AcpAgent['loadSession']>>[0]) => (
+      agentContext.request(methods.agent.session.load, params)
+    ),
+    resumeSession: (params: Parameters<NonNullable<AcpAgent['resumeSession']>>[0]) => (
+      agentContext.request(methods.agent.session.resume, params)
+    ),
+    closeSession: (params: Parameters<NonNullable<AcpAgent['closeSession']>>[0]) => (
+      agentContext.request(methods.agent.session.close, params)
+    ),
+    setSessionConfigOption: (params: Parameters<NonNullable<AcpAgent['setSessionConfigOption']>>[0]) => (
+      agentContext.request(methods.agent.session.setConfigOption, params)
+    ),
+    setSessionMode: (params: Parameters<NonNullable<AcpAgent['setSessionMode']>>[0]) => (
+      agentContext.request(methods.agent.session.setMode, params)
+    ),
+    prompt: (params: Parameters<AcpAgent['prompt']>[0]) => (
+      agentContext.request(methods.agent.session.prompt, params)
+    ),
+    cancel: (params: Parameters<AcpAgent['cancel']>[0]) => (
+      agentContext.notify(methods.agent.session.cancel, params)
+    ),
+  })
   return harness
 }
