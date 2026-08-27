@@ -6,7 +6,7 @@
 
 ## 当前基线
 
-版本 `0.8.0` 在 `0.7.0` editor profile 与投影闭包之上完成逐 session MCP：Zed 可以在 new/load/resume 请求中提供 stdio 或 Streamable HTTP server，每个 server 通过已发布 Harness MCP client 组合到精确 agent scope，同名 server 可跨 session 并存，并在取消、关闭、失败或连接断开时完整静止。Additional directories 仍明确不支持。
+版本 `0.8.1` 在 `0.8.0` 逐 session MCP 基线上完成阶段 D1 生命周期可靠性：成功 close 的 durability boundary、并发 list/load/resume/close 隔离，以及真实双进程 JSONL 恢复均有覆盖。Additional directories 仍明确不支持。
 
 当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
 
@@ -94,6 +94,8 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 
 ## 阶段 D：完整 Session 管理
 
+状态：D1「Session 生命周期可靠性」已在 `0.8.1` 完成；阶段 D 整体仍未完成。删除、metadata 分页与 `updatedAt` 等 DSH capability 可用前不在 transport 中替代实现，ACP session fork 继续等待稳定协议与 Zed 支持。生命周期决定见 [Session Lifecycle D1 Agent Note](agent-notes/2026-08-27-session-lifecycle-d1.md)。
+
 ### 目标
 
 补齐大规模 session 历史的发现、删除和派生索引一致性。
@@ -104,13 +106,14 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 - 为 `session/list` 增加稳定 opaque cursor、分页和真实 `updatedAt`；
 - 协调 JSONL 真源、attachment、checkpoint 和 session-query 派生索引的删除与对账；
 - 在 ACP session fork 稳定且 Zed 支持后，将 Harness 的 session fork 投影到协议；
-- 增加并发 list/load/resume/close/delete 与多进程恢复测试。
+- D1 已增加并发 list/load/resume/close、同 session 恢复互斥、close durability barrier 与真实多进程 JSONL 恢复测试；delete 并发测试随删除能力延期。
 
 ### 验收
 
 - 删除不会由 ACP transport 直接操作 JSONL 文件或 SQLite 私有表；
 - 分页过程中新增或更新 session 时，cursor 行为确定且不会重复或静默遗漏；
 - close 只释放在线资源，delete 才删除持久历史，两者语义不会混合。
+- D1 保证成功的 close 在返回前完成标准 session flush，另一个已启动且共享 JSONL 真源、但拥有私有派生索引的 launcher 可立即 list/load/resume；checkpoint 失败仍释放在线资源并明确失败。
 
 ## 阶段 E：丰富内容与实时 UI
 

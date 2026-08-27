@@ -6,9 +6,9 @@
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
-## 0.8.0 行为版本
+## 0.8.1 行为版本
 
-`0.8.0` 增加逐 ACP session 在线配置的 MCP。`session/new`、`session/load` 和 `session/resume` 接受完整的 stdio 与 Streamable HTTP server 配置；bridge 在精确 agent scope 中启动已发布的 Harness MCP client，并在取消、关闭、失败或连接断开时等待完整 teardown。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
+`0.8.1` 完成阶段 D1 的 Session 生命周期可靠性：`session/close` 成功返回前完成标准持久化 checkpoint，并由真实双进程 launcher 测试覆盖即时 list/load/resume 与非破坏性 close。`0.8.0` 的逐 ACP session MCP 行为保持不变。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
 
 ## 安装
 
@@ -45,7 +45,7 @@ GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interac
 
 ## 插件
 
-`apply(ctx, config)` 需要 `agents`、`commands`、`llm`、`skills`、`tools`、`sessionPersistence` 和 `sessionQuery`。它只回答自己创建的 agent 的审批请求，并把外来请求交给下一个监听器。一条连接可以拥有多个互相隔离的 session；每个事件、选择、skill 查找和审批在进入 wire 前都会核对精确的 agent 对象。组合 `permissionPresets` 服务后会增加权限 selector；缺少该服务时模型选择仍然可用，而权限配置会省略。
+`apply(ctx, config)` 需要 `agents`、`commands`、`llm`、`skills`、`tools`、`sessions`、`sessionPersistence` 和 `sessionQuery`。它只回答自己创建的 agent 的审批请求，并把外来请求交给下一个监听器。一条连接可以拥有多个互相隔离的 session；每个事件、选择、skill 查找和审批在进入 wire 前都会核对精确的 agent 对象。组合 `permissionPresets` 服务后会增加权限 selector；缺少该服务时模型选择仍然可用，而权限配置会省略。
 
 | 配置 | 含义 |
 |---|---|
@@ -60,7 +60,7 @@ GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interac
 
 `session/list` 从 live 优先的查询语料库读取 session，按确定性的创建时间倒序返回，省略没有已记录绝对 cwd 的 session，支持精确 cwd 过滤，并尽可能附带日志中的标题。当前响应为不分页的完整结果；非 null cursor 会明确失败。
 
-`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，再释放精确归属的 agent。
+`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，通过标准 `ctx.sessions.flush()` durability barrier 后再释放精确归属的 agent；成功返回后，另一个共享 JSONL 真源的进程可以立即发现并恢复历史。Checkpoint 失败仍会释放在线资源并明确报错，close 不删除持久历史。
 
 MCP 配置是在线、完整且逐 session 归属的。Stdio command 直接以 executable 加 argv 传递，不经过 shell 拼接；显式 env 和 HTTP headers 不会持久化到 session log，也不会进入模型上下文。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
 

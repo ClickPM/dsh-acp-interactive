@@ -1,6 +1,6 @@
 /** Real subprocess coverage for the package-owned ACP launcher and composition. */
 
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -17,6 +17,52 @@ import {
 } from '@agentclientprotocol/sdk'
 
 const roots: string[] = []
+
+interface LauncherProcess {
+  child: ChildProcessWithoutNullStreams
+  client: ClientSideConnection
+  updates: SessionNotification['update'][]
+  stderr: string[]
+  stop(): Promise<void>
+}
+
+function startLauncher(root: string, home: string, sessions: string): LauncherProcess {
+  const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_ACP_SESSIONS_ROOT: sessions,
+      DSH_PERMISSION_MODE: 'danger-full-access',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  const stderr: string[] = []
+  const updates: SessionNotification['update'][] = []
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => stderr.push(String(chunk)))
+  const client = new ClientSideConnection((_agent: Agent): Client => ({
+    sessionUpdate: async update => { updates.push(update.update) },
+    requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  }), ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+  ))
+  let stopping: Promise<void> | undefined
+  return {
+    child,
+    client,
+    updates,
+    stderr,
+    stop: () => {
+      stopping ??= new Promise<void>((resolveStop) => {
+        child.once('close', () => resolveStop())
+        child.kill('SIGTERM')
+      })
+      return stopping
+    },
+  }
+}
 
 async function waitForUpdate(
   updates: SessionNotification['update'][],
@@ -47,6 +93,55 @@ async function waitForUpdate(
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it('recovers one JSONL session across concurrent launcher processes without making close destructive', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-multiprocess-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  const sessions = join(root, 'sessions')
+  await Promise.all([mkdir(home), mkdir(sessions)])
+  const writer = startLauncher(root, home, sessions)
+  const reader = startLauncher(root, home, sessions)
+  try {
+    await Promise.all([
+      writer.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }),
+      reader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }),
+    ])
+    const created = await writer.client.newSession({ cwd: root, mcpServers: [] })
+    await expect(writer.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: '/plan' }],
+    })).resolves.toEqual({ stopReason: 'end_turn' })
+    await writer.client.closeSession({ sessionId: created.sessionId })
+
+    await expect(reader.client.listSessions({ cwd: root })).resolves.toEqual({
+      sessions: [{ sessionId: created.sessionId, cwd: root }],
+    })
+    const loaded = await reader.client.loadSession({
+      sessionId: created.sessionId,
+      cwd: root,
+      mcpServers: [],
+    })
+    expect(loaded.modes?.currentModeId).toBe('plan')
+    await reader.client.closeSession({ sessionId: created.sessionId })
+    await expect(reader.client.listSessions({ cwd: root })).resolves.toEqual({
+      sessions: [{ sessionId: created.sessionId, cwd: root }],
+    })
+
+    const resumed = await reader.client.resumeSession({ sessionId: created.sessionId, cwd: root })
+    expect(resumed.modes?.currentModeId).toBe('plan')
+    await reader.client.closeSession({ sessionId: created.sessionId })
+    await expect(reader.client.listSessions({ cwd: root })).resolves.toEqual({
+      sessions: [{ sessionId: created.sessionId, cwd: root }],
+    })
+  } catch (error: unknown) {
+    throw new Error(
+      `${String(error)}\nwriter stderr:\n${writer.stderr.join('')}\nreader stderr:\n${reader.stderr.join('')}`,
+    )
+  } finally {
+    await Promise.all([writer.stop(), reader.stop()])
+  }
 })
 
 async function mockToolServer(options: {

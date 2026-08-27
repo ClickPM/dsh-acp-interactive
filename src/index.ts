@@ -102,7 +102,16 @@ import {
 
 export const name = 'acp-interactive'
 /** Interactive UI registries; concrete model, skill, and tool providers remain composition choices. */
-export const inject = ['agents', 'commands', 'llm', 'skills', 'tools', 'sessionPersistence', 'sessionQuery']
+export const inject = [
+  'agents',
+  'commands',
+  'llm',
+  'skills',
+  'tools',
+  'sessions',
+  'sessionPersistence',
+  'sessionQuery',
+]
 
 /** Provider/model defaults for agents created by this ACP server. */
 export interface AcpInteractiveConfig {
@@ -475,7 +484,14 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       cancelRecord(record, new Error('ACP session closed'))
       await awaitRecordIdle(record)
       await drainDescendants([record.agent])
+      let checkpointError: unknown
+      try {
+        await ctx.sessions.flush(record.agent.session)
+      } catch (error: unknown) {
+        checkpointError = error
+      }
       await disposeRecord(record)
+      if (checkpointError !== undefined) throw checkpointError
     })().finally(() => {
       /* v8 ignore next -- the exact record stays mapped until this owner finishes closing it. */
       if (sessions.get(sessionId) === record) sessions.delete(sessionId)
@@ -711,7 +727,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.8.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.8.1' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },

@@ -6,7 +6,7 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `0.8.0` completes session-scoped MCP on top of the `0.7.0` editor-profile and projection closure. Zed can supply stdio or Streamable HTTP servers in new/load/resume requests; each server is composed through the published Harness MCP client into the exact agent scope, same-name servers coexist across sessions, and cancellation, close, failure, or connection loss waits for complete quiescence. Additional directories remains explicitly unsupported.
+Version `0.8.1` adds Stage D1 lifecycle reliability on top of the `0.8.0` session-scoped MCP baseline: successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery are covered. Additional directories remains explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 
@@ -94,6 +94,8 @@ Accept MCP server configuration supplied by Zed and adapt the published Harness 
 
 ## Stage D: Complete Session Management
 
+Status: D1, “Session lifecycle reliability,” is complete in `0.8.1`; Stage D as a whole remains incomplete. The transport will not substitute for unavailable DSH deletion, metadata-pagination, or `updatedAt` capabilities, and ACP session fork still waits for a stable protocol and Zed support. See the [Session Lifecycle D1 Agent Note](agent-notes/2026-08-27-session-lifecycle-d1.md) for the lifecycle decision.
+
 ### Objective
 
 Complete discovery and deletion for large session histories while preserving derived-index consistency.
@@ -104,13 +106,14 @@ Complete discovery and deletion for large session histories while preserving der
 - add stable opaque cursors, pagination, and authoritative `updatedAt` values to `session/list`;
 - reconcile deletion across the JSONL source of truth, attachments, checkpoints, and session-query derived indexes;
 - project Harness session forks after ACP session fork stabilizes and Zed supports it;
-- add concurrent list/load/resume/close/delete tests and multi-process recovery coverage.
+- D1 adds concurrent list/load/resume/close, same-session restore exclusion, a close durability barrier, and real multi-process JSONL recovery coverage; concurrent delete coverage remains deferred with deletion itself.
 
 ### Acceptance
 
 - The ACP transport never implements deletion by editing JSONL files or private SQLite tables;
 - cursors remain deterministic when sessions are added or updated during pagination, without silent duplicates or omissions;
 - close releases live resources and delete removes durable history; the two operations retain separate semantics.
+- D1 guarantees that a successful close crosses the standard session flush before returning, so another already-running launcher sharing the JSONL source but owning a private derived index can immediately list/load/resume it; a checkpoint failure still releases live resources and fails explicitly.
 
 ## Stage E: Rich Content and Real-Time UI
 

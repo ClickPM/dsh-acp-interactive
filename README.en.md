@@ -6,9 +6,9 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
-## 0.8.0 behavior release
+## 0.8.1 behavior release
 
-Version `0.8.0` adds live MCP configuration owned by each individual ACP session. `session/new`, `session/load`, and `session/resume` accept complete stdio and Streamable HTTP server configurations; the bridge starts the published Harness MCP client inside the exact agent scope and waits for complete teardown on cancellation, close, failure, or connection loss. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
+Version `0.8.1` completes Stage D1 session-lifecycle reliability: `session/close` crosses the standard durability checkpoint before succeeding, with real two-process launcher coverage for immediate list/load/resume and non-destructive close. The session-scoped MCP behavior from `0.8.0` is unchanged. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
 
 ## Installation
 
@@ -45,7 +45,7 @@ The bundled composition explicitly mounts these three provider dependencies. `se
 
 ## Plugin
 
-`apply(ctx, config)` requires `agents`, `commands`, `llm`, `skills`, `tools`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, skill lookup, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
+`apply(ctx, config)` requires `agents`, `commands`, `llm`, `skills`, `tools`, `sessions`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, skill lookup, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
 
 | Config | Meaning |
 |---|---|
@@ -60,7 +60,7 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 `session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
-`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, skill discovery, model, or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
+`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, skill discovery, model, or command work, waits for output and continuable descendants to settle, crosses the standard `ctx.sessions.flush()` durability barrier, and only then disposes the exact owned agent. After a successful response, another process sharing the JSONL source can discover and restore the history immediately. A checkpoint failure still releases live resources and fails explicitly; close never deletes durable history.
 
 MCP configuration is live, complete, and session-scoped. Stdio commands are passed directly as executable plus argv without shell interpolation; explicit env values and HTTP headers are never persisted in the session log or added to model context. Stable ACP v1 stdio and HTTP transports are supported, while SSE, ACP-proxied MCP, and unknown variants fail explicitly. Initial connection or tool-discovery failure fails the whole create/restore transaction and rolls back every server already started. Load and resume use only the current request's complete configuration, so an omitted, removed, changed, or failed server never inherits an older connection. Deterministic `mcp__<server>__<tool>` names remain stable across restoration, while private per-session Cordis roots permit two sessions to use the same server name without sharing tools.
 

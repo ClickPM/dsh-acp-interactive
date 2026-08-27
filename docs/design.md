@@ -65,7 +65,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - `session/list` 从 `ctx.sessionQuery` 的 live 优先语料库返回按创建时间倒序排列的会话，支持精确 cwd 过滤与日志标题；缺少绝对 cwd 的会话不进入 ACP 结果；
 - `session/load` 先校验持久会话及其 cwd，再通过 `ctx.agents.resume()` 恢复 agent，并重放已组装的用户／assistant 消息、reasoning、工具卡片、最后的 plan、标题、用量和命令目录；
 - `session/resume` 恢复相同的 dsh 上下文，但不重放历史，只发送当前命令目录；
-- `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和 continuable 后代完全停稳，再释放精确归属的 `AgentHandle`；
+- `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和 continuable 后代完全停稳，通过标准 session flush durability barrier，再释放精确归属的 `AgentHandle`；checkpoint 失败仍完成在线资源释放并明确失败；
 - 恢复历史包含 ACP 无法无损表示的丰富内容时明确失败，不会静默丢弃内容；
 - 示例组合加入 JSONL persistence、checkpoint policy 和每进程内存 SQLite session query，并由真实 Loader 快照覆盖 list/load；并发编辑器 server 只共享 JSONL 真源，不共享单 owner 的派生索引。
 
@@ -150,7 +150,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 1. Zed 能发现同一 cwd 下的持久会话，并显示日志中已有的标题。
 2. `session/load` 只重放组装后的消息一次，同时恢复工具卡片、计划、标题、用量与命令目录。
 3. `session/resume` 恢复模型上下文但不重复发送历史。
-4. `session/close` 在 prompt、斜杠命令、恢复中、连接断开及并发关闭场景下都能达到完全停稳，且不会释放其他连接拥有的 agent。
+4. `session/close` 在 prompt、斜杠命令、恢复中、连接断开及并发关闭场景下都能达到完全停稳，成功返回前已完成标准持久化 checkpoint，且不会释放其他连接拥有的 agent。
 5. 无法无损投影的持久内容和不受支持的分页 cursor 明确失败。
 6. 真实 Loader 组合能在新进程中列出并加载磁盘上的 JSONL 会话。
 

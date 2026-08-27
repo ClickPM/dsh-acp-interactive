@@ -263,6 +263,76 @@ describe('interactive ACP persisted sessions', () => {
     await expect(Promise.all([first, second, disposing])).resolves.toEqual([{}, {}, undefined])
   })
 
+  it('disposes the owned agent when the close durability checkpoint fails', async () => {
+    harness = await makeHarness([])
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const { sessionId } = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    vi.spyOn(harness.ctx.sessions, 'flush').mockRejectedValueOnce(new Error('checkpoint unavailable'))
+
+    await expect(harness.client.closeSession({ sessionId })).rejects.toMatchObject({
+      data: { details: expect.stringContaining('checkpoint unavailable') },
+    })
+    expect(harness.ctx.agents.get(SessionId(sessionId))).toBeUndefined()
+  })
+
+  it('isolates concurrent list, load, resume, and close operations', async () => {
+    harness = await makeHarness([])
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const cwd = process.cwd()
+    const loadId = SessionId('concurrent-load')
+    const resumeId = SessionId('concurrent-resume')
+    harness.persisted.set(loadId, {
+      meta: { version: 0, id: loadId, createdAt: 2, cwd },
+      events: [],
+    })
+    harness.persisted.set(resumeId, {
+      meta: { version: 0, id: resumeId, createdAt: 1, cwd },
+      events: [],
+    })
+
+    const resume = harness.ctx.agents.resume.bind(harness.ctx.agents)
+    const bothRestoring = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const restoring = new Set<SessionId>()
+    vi.spyOn(harness.ctx.agents, 'resume').mockImplementation(async (options) => {
+      restoring.add(options.resumeSessionId)
+      if (restoring.size === 2) bothRestoring.resolve(undefined)
+      await release.promise
+      return resume(options)
+    })
+
+    const loading = harness.client.loadSession({ sessionId: loadId, cwd, mcpServers: [] })
+    const resuming = harness.client.resumeSession({ sessionId: resumeId, cwd })
+    await bothRestoring.promise
+
+    await expect(harness.client.listSessions({ cwd })).resolves.toEqual({
+      sessions: [
+        { sessionId: loadId, cwd },
+        { sessionId: resumeId, cwd },
+      ],
+    })
+    await expect(harness.client.resumeSession({ sessionId: loadId, cwd }))
+      .rejects.toThrow(/already active/)
+
+    release.resolve(undefined)
+    await expect(Promise.all([loading, resuming])).resolves.toEqual([
+      expect.objectContaining({ configOptions: expect.any(Array) }),
+      expect.objectContaining({ configOptions: expect.any(Array) }),
+    ])
+    await expect(Promise.all([
+      harness.client.closeSession({ sessionId: loadId }),
+      harness.client.closeSession({ sessionId: resumeId }),
+    ])).resolves.toEqual([{}, {}])
+    expect(harness.ctx.agents.get(loadId)).toBeUndefined()
+    expect(harness.ctx.agents.get(resumeId)).toBeUndefined()
+    await expect(harness.client.listSessions({ cwd })).resolves.toEqual({
+      sessions: [
+        { sessionId: loadId, cwd },
+        { sessionId: resumeId, cwd },
+      ],
+    })
+  })
+
   it('distinguishes an agent owned outside this ACP connection', async () => {
     harness = await makeHarness([])
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
