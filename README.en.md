@@ -6,19 +6,21 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
-## 0.8.1 behavior release
+## 1.0.0 stable release
 
-Version `0.8.1` completes Stage D1 session-lifecycle reliability: `session/close` crosses the standard durability checkpoint before succeeding, with real two-process launcher coverage for immediate list/load/resume and non-destructive close. The session-scoped MCP behavior from `0.8.0` is unchanged. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
+Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, the successful-close durability boundary, and real two-process recovery. Stage E, “Rich Content and Real-Time UI,” is `Deferred`; this release does not add protocol or Harness capabilities without a complete lifecycle. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
 
 ## Installation
 
-Before an npm release, install globally from GitHub and pin an audited commit:
+Install the stable release globally from GitHub and pin the release tag:
 
 ```sh
-npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
+npm install --global github:cking000bigdemon/dsh-acp-interactive#v1.0.0
 ```
 
-GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+For an audit-fixed installation, replace `v1.0.0` with the corresponding full commit SHA.
+
+Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 

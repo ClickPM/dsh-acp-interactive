@@ -6,7 +6,7 @@
 
 ## 当前基线
 
-版本 `0.8.1` 在 `0.8.0` 逐 session MCP 基线上完成阶段 D1 生命周期可靠性：成功 close 的 durability boundary、并发 list/load/resume/close 隔离，以及真实双进程 JSONL 恢复均有覆盖。Additional directories 仍明确不支持。
+版本 `1.0.0` 将当前自包含 ACP v1 集成确立为稳定基线：阶段 A、B、C 与 D1 已完成，逐 session MCP、成功 close 的 durability boundary、并发 list/load/resume/close 隔离，以及真实双进程 JSONL 恢复均有覆盖。阶段 E 标记为 `Deferred`。Additional directories 仍明确不支持。
 
 当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
 
@@ -117,6 +117,8 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 
 ## 阶段 E：丰富内容与实时 UI
 
+状态：`Deferred`。当前核心 ACP v1 使用不依赖本阶段；仅在出现明确编辑器需求，并且对应 ACP/Zed 协议面与 Harness 领域能力形成完整闭包后重新评估。本状态不影响对现有投影缺陷进行正确性修复。
+
 ### 目标
 
 提高 Zed 对长任务、终端工作和多媒体结果的呈现完整度。
@@ -149,4 +151,4 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 
 ## 推荐顺序
 
-按 `A → B → C → D → E` 推进。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 接入逐 session 外部工具生命周期，阶段 D 扩展持久状态；二者都必须在隔离与所有权规则稳定后实施。阶段 E 改善表现力。Additional directories 由独立 DSH 插件项目推进，不属于本顺序。
+当前主动开发顺序为 `A → B → C → D`。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 接入逐 session 外部工具生命周期，阶段 D 扩展持久状态；二者都必须在隔离与所有权规则稳定后实施。阶段 E 为 `Deferred`，不属于当前主动发布计划，仅在需求和前置能力成熟后恢复。Additional directories 由独立 DSH 插件项目推进，不属于本顺序。

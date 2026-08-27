@@ -6,19 +6,21 @@
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
-## 0.8.1 行为版本
+## 1.0.0 稳定版本
 
-`0.8.1` 完成阶段 D1 的 Session 生命周期可靠性：`session/close` 成功返回前完成标准持久化 checkpoint，并由真实双进程 launcher 测试覆盖即时 list/load/resume 与非破坏性 close。`0.8.0` 的逐 ACP session MCP 行为保持不变。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
+`1.0.0` 将当前自包含 ACP v1 集成确立为稳定基线：阶段 A、B、C 与 D1 已完成，逐 ACP session MCP、成功 close 的持久化边界和真实双进程恢复均有覆盖。阶段 E「丰富内容与实时 UI」标记为 `Deferred`，不在本版本新增未闭环的协议或 Harness 能力。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
 
 ## 安装
 
-发布到 npm 前，可以直接从 GitHub 全局安装并锁定到已审核的 commit：
+从 GitHub 全局安装稳定版本并锁定到发布 tag：
 
 ```sh
-npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
+npm install --global github:cking000bigdemon/dsh-acp-interactive#v1.0.0
 ```
 
-GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
+需要审计固定时，也可以将 `v1.0.0` 替换为对应的完整 commit SHA。
+
+安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 

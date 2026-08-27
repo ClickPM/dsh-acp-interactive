@@ -727,7 +727,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.8.1' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.0' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },

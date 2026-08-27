@@ -6,7 +6,7 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `0.8.1` adds Stage D1 lifecycle reliability on top of the `0.8.0` session-scoped MCP baseline: successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery are covered. Additional directories remains explicitly unsupported.
+Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery. Stage E is `Deferred`. Additional directories remains explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 
@@ -117,6 +117,8 @@ Complete discovery and deletion for large session histories while preserving der
 
 ## Stage E: Rich Content and Real-Time UI
 
+Status: `Deferred`. Core ACP v1 usage does not depend on this stage. Re-evaluate it only when there is concrete editor demand and the corresponding ACP/Zed surface and Harness domain capability have a complete lifecycle. This status does not prevent correctness fixes to existing projections.
+
 ### Objective
 
 Improve Zed presentation for long-running work, terminals, and multimedia results.
@@ -149,4 +151,4 @@ Every stage preserves these rules:
 
 ## Recommended Order
 
-Implement `A → B → C → D → E`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stage C adds per-session external-tool lifecycle and Stage D expands durable state; both follow stable isolation and ownership rules. Stage E improves presentation. Additional directories proceeds in an independent DSH plugin project and is not part of this sequence.
+The active development order is `A → B → C → D`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stage C adds per-session external-tool lifecycle and Stage D expands durable state; both follow stable isolation and ownership rules. Stage E is `Deferred`, outside the active release plan, and resumes only when demand and prerequisites mature. Additional directories proceeds in an independent DSH plugin project and is not part of this sequence.
