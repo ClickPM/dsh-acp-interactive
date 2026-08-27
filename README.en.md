@@ -20,7 +20,7 @@ npm install --global github:cking000bigdemon/dsh-acp-interactive#v1.0.0
 
 For an audit-fixed installation, replace `v1.0.0` with the corresponding full commit SHA.
 
-Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
@@ -59,6 +59,8 @@ The bundled composition explicitly mounts these three provider dependencies. `se
 ## Protocol
 
 The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall`, `presentResult`, and durable `presentationMeta`; generic, diff, and terminal intents map to ACP cards without switching on tool names. The editor profile's new `glob` and `grep` tools execute in the published Harness filesystem-search plugin with its packaged ripgrep binary and use the same generic projection. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
+
+After a new session receives its first eligible text prompt, Harness publishes its immediate deterministic fallback title and then asynchronously summarizes that prompt with the exact provider/model route recorded for the main request. The accepted model result is persisted as a newer `session/title` event and replaces the client title through `session_info_update`. Failure, timeout, or framed input beyond 4096 bytes keeps the fallback without delaying the main agent response. Later prompts do not repeatedly retitle the session.
 
 `session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
@@ -146,6 +148,8 @@ Message, thought, tool-card, permission, plan, title, usage, and command updates
 #### Token effect
 
 The ACP updates add no model tokens. Tool results retain their ordinary dsh model-facing cost.
+
+Model-generated titles use a separate auxiliary request. It reads only the first eligible human message, emits at most 32 tokens, and incurs the selected route's ordinary usage; neither the generated title nor its framing enters the main agent history.
 
 #### KV Cache effect
 

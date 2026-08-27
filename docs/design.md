@@ -52,7 +52,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 终端展示意图映射为 Zed terminal card；不支持该能力的客户端得到文本回退；
 - `approval/request` 映射为 `session/request_permission`，只提供单次允许或拒绝；
 - `todo/write` 映射为完整 ACP plan；
-- `session/title` 映射为 `session_info_update`；
+- `session/title` 映射为 `session_info_update`；独立 launcher 组合 Harness 的 first-prompt LLM provider，在即时确定性回退之后通过主请求已记录的精确 route 异步生成并持久化标题，ACP transport 不实现标题领域逻辑；
 - 请求上下文与用量映射为 `usage_update`；
 - `ctx.commands` 映射为 `available_commands_update`，并支持直接执行斜杠命令。
 

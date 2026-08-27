@@ -6,7 +6,7 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery. Stage E is `Deferred`. Additional directories remains explicitly unsupported.
+Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery. The standalone launcher also composes Harness's first-prompt LLM title provider, which publishes a durable asynchronous title after the immediate fallback. Stage E is `Deferred`. Additional directories remains explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 

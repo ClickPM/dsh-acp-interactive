@@ -43,6 +43,7 @@ describe('editor profile audit', () => {
     const manifest = JSON.parse(await readFile(resolve('config/editor-profile.json'), 'utf8'))
     const packages = compositionPackages(await readFile(resolve('config/cordis.yml'), 'utf8'))
     expect(packages).toEqual(manifest.localCompositionPackages)
+    expect(packages).toContain('@deepseek-ai/dsh-session-title-first-prompt-llm')
     expect(packages).toContain('@deepseek-ai/dsh-tool-fs-search')
     expect(packages).toContain('@deepseek-ai/dsh-tool-call-timeout-policy')
   })

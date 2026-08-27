@@ -52,6 +52,14 @@
       maxBytes: 65536
     persona: |
       You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+- id: session-title-provider
+  name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
+  config:
+    targetWords: 5
+    targetCjkCharacters: 10
+    maxInputBytes: 4096
+    maxOutputTokens: 32
+    timeoutMs: 5000
 - id: shell-env
   name: '@deepseek-ai/dsh-shell-env'
 - id: tool-bash

@@ -30,6 +30,7 @@
     "@deepseek-ai/dsh-session-persistence-jsonl",
     "@deepseek-ai/dsh-session-projection",
     "@deepseek-ai/dsh-session-query-sqlite",
+    "@deepseek-ai/dsh-session-title-first-prompt-llm",
     "@deepseek-ai/dsh-settings-file",
     "@deepseek-ai/dsh-shell-env",
     "@deepseek-ai/dsh-subprocess-local",
@@ -49,6 +50,17 @@
     "@deepseek-ai/dsh-web-search-deepseek"
   ],
   "selections": [
+    {
+      "id": "model-generated-session-title",
+      "decision": "selected",
+      "reason": "The published first-prompt provider summarizes the first eligible human message through the exact logged model route, while the log-backed title service preserves the immediate deterministic fallback and ACP projects accepted revisions.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-session-title-first-prompt-llm",
+        "@deepseek-ai/dsh-session-title-llm",
+        "@deepseek-ai/dsh-session-title",
+        "@deepseek-ai/dsh-llm"
+      ]
+    },
     {
       "id": "filesystem-search",
       "decision": "selected",

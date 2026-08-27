@@ -155,13 +155,31 @@ async function mockToolServer(options: {
   const callId = options.callId ?? 'stage-b-glob'
   const completion = options.completion ?? 'filesystem search complete'
   const requests: unknown[] = []
+  let mainRequests = 0
   const server = createServer((request, response) => {
     const chunks: Buffer[] = []
     request.on('data', (chunk: Buffer) => chunks.push(chunk))
     request.on('end', () => {
-      requests.push(JSON.parse(Buffer.concat(chunks).toString('utf8')))
+      const payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+        max_completion_tokens?: number
+        messages?: Array<{ role?: string; content?: string }>
+      }
+      requests.push(payload)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      const events = requests.length === 1
+      const isTitleRequest = payload.max_completion_tokens === 32
+        && payload.messages?.some(message => message.role === 'system'
+          && message.content?.includes('Create a concise title for an AI coding-assistant session')) === true
+      if (isTitleRequest) {
+        response.end([
+          'data: {"choices":[{"delta":{"role":"assistant","content":"Locate Stage B marker"},"index":0,"finish_reason":null}]}',
+          'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":4}}',
+          'data: [DONE]',
+          '',
+        ].join('\n\n'))
+        return
+      }
+      mainRequests += 1
+      const events = mainRequests === 1
         ? [
             `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: callId, type: 'function', function: { name: toolName, arguments: toolArguments } }] }, index: 0, finish_reason: null }] })}`,
             'data: {"choices":[{"delta":{},"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
@@ -187,7 +205,9 @@ it('boots without a Harness checkout and publishes user providers plus official 
   const root = await mkdtemp(join(tmpdir(), 'dsh-acp-standalone-'))
   roots.push(root)
   const home = join(root, '.dsh')
-  await mkdir(home)
+  const agentsHome = join(root, 'agents')
+  const sessions = join(root, 'sessions')
+  await Promise.all([mkdir(home), mkdir(agentsHome), mkdir(sessions)])
   await writeFile(join(home, 'settings.yaml'), [
     'llm-pi-ai:',
     '  providers:',
@@ -202,7 +222,12 @@ it('boots without a Harness checkout and publishes user providers plus official 
   ].join('\n'))
   const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
     cwd: root,
-    env: { ...process.env, DSH_HOME: home },
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_AGENTS_HOME: agentsHome,
+      DSH_ACP_SESSIONS_ROOT: sessions,
+    },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   const stderr: string[] = []
@@ -246,7 +271,9 @@ it('executes a discovered human command and a selected model tool through real A
   const root = await mkdtemp(join(tmpdir(), 'dsh-acp-editor-profile-'))
   roots.push(root)
   const home = join(root, '.dsh')
-  await mkdir(home)
+  const agentsHome = join(root, 'agents')
+  const sessions = join(root, 'sessions')
+  await Promise.all([mkdir(home), mkdir(agentsHome), mkdir(sessions)])
   await writeFile(join(root, 'stage-b-marker.ts'), 'export const stageB = true\n')
   const mock = await mockToolServer()
   await writeFile(join(home, '.credentials.yaml'), [
@@ -273,6 +300,8 @@ it('executes a discovered human command and a selected model tool through real A
     env: {
       ...process.env,
       DSH_HOME: home,
+      DSH_AGENTS_HOME: agentsHome,
+      DSH_ACP_SESSIONS_ROOT: sessions,
       DSH_PERMISSION_MODE: 'danger-full-access',
       STAGE_B_API_KEY: 'test-key',
     },
@@ -310,7 +339,9 @@ it('executes a discovered human command and a selected model tool through real A
       prompt: [{ type: 'text', text: 'Find the Stage B marker with the filesystem search tool.' }],
     })
 
-    expect(mock.requests).toHaveLength(2)
+    expect(await waitForUpdate(updates, update => update.sessionUpdate === 'session_info_update'
+      && update.title === 'Locate Stage B marker')).toBeDefined()
+    expect(mock.requests).toHaveLength(3)
     expect(updates).toContainEqual(expect.objectContaining({
       sessionUpdate: 'tool_call',
       toolCallId: 'stage-b-glob',
@@ -339,7 +370,9 @@ it('runs a session-scoped stdio MCP tool through the built launcher', async () =
   const root = await mkdtemp(join(tmpdir(), 'dsh-acp-launcher-mcp-'))
   roots.push(root)
   const home = join(root, '.dsh')
-  await mkdir(home)
+  const agentsHome = join(root, 'agents')
+  const sessions = join(root, 'sessions')
+  await Promise.all([mkdir(home), mkdir(agentsHome), mkdir(sessions)])
   const mock = await mockToolServer({
     toolName: 'mcp__launcher__echo',
     toolArguments: '{"text":"hello"}',
@@ -365,6 +398,8 @@ it('runs a session-scoped stdio MCP tool through the built launcher', async () =
     env: {
       ...process.env,
       DSH_HOME: home,
+      DSH_AGENTS_HOME: agentsHome,
+      DSH_ACP_SESSIONS_ROOT: sessions,
       DSH_PERMISSION_MODE: 'danger-full-access',
       LAUNCHER_MCP_KEY: 'test-key',
     },
@@ -402,7 +437,9 @@ it('runs a session-scoped stdio MCP tool through the built launcher', async () =
       sessionId: session.sessionId,
       prompt: [{ type: 'text', text: 'Use the session MCP echo tool.' }],
     })
-    expect(mock.requests).toHaveLength(2)
+    expect(await waitForUpdate(updates, update => update.sessionUpdate === 'session_info_update'
+      && update.title === 'Locate Stage B marker')).toBeDefined()
+    expect(mock.requests).toHaveLength(3)
     expect(updates).toContainEqual(expect.objectContaining({
       sessionUpdate: 'tool_call',
       toolCallId: 'launcher-mcp-echo',
