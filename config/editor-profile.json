@@ -45,6 +45,7 @@
     "@deepseek-ai/dsh-user-approval",
     "@deepseek-ai/dsh-user-questions",
     "@deepseek-ai/dsh-web",
+    "@deepseek-ai/dsh-web-fetch-http",
     "@deepseek-ai/dsh-web-search-deepseek"
   ],
   "selections": [
@@ -66,6 +67,7 @@
       "reason": "DeepSeek web search provider is available with the user's API key; the model-facing web tool projects through the generic ACP card with cwd and cancellation isolation.",
       "requiredPackages": [
         "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-fetch-http",
         "@deepseek-ai/dsh-web-search-deepseek",
         "@deepseek-ai/dsh-tool-web",
         "@deepseek-ai/dsh-tools"

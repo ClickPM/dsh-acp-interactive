@@ -132,6 +132,8 @@
   name: '@deepseek-ai/dsh-web'
 - id: web-search-deepseek
   name: '@deepseek-ai/dsh-web-search-deepseek'
+- id: web-fetch-http
+  name: '@deepseek-ai/dsh-web-fetch-http'
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
 # MCP servers are not static profile plugins. The ACP bridge composes the
