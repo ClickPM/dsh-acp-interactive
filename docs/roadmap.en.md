@@ -6,9 +6,21 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `0.6.0` ships a standalone `dsh-acp-interactive` command, a package-owned Cordis profile, one mutually exclusive native shell per platform, and `@agentclientprotocol/sdk 1.4.0` as its stable ACP v1 baseline. Users can access text and reasoning streams, tool cards, diffs, approvals, plans, model and reasoning-effort selection, permission presets, images, resource links, structured questions, persistent sessions, official human slash commands, and user-invocable skills in Zed without downloading or modifying the DeepSeek Harness source.
+Version `0.7.0` completes the editor-profile and projection closure on top of the stable ACP v1 baseline from `0.6.0`: it adds published local filesystem search, the cooperative timeout policy, auditable admission/defer decisions, read-only official-profile reconciliation, and packed-install runtime-closure verification. Users can access text and reasoning streams, generic tool cards, diffs, approvals, plans, model and reasoning-effort selection, permission presets, images, resource links, structured questions, persistent sessions, human slash commands, user-invocable skills, and `glob`/`grep` in Zed without downloading or modifying the DeepSeek Harness source.
 
-Production uses ACP v1. ACP v2 remains a Draft and is not the near-term default. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
+Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
+
+## Capability Integration Boundary
+
+This repository does not implement DeepSeek Harness domain capabilities. Web access, file search, LSP, terminals, subagents, workflows, spill, tool-result pruning, timeouts, loop guards, and their execution semantics, policies, and domain events remain owned by their Harness plugins. This repository owns only two kinds of work: composing published Harness plugins that are suitable for an editor into the standalone launcher with a complete install/runtime dependency closure, and reliably exposing the requests, events, and lifecycle those plugins already provide to Zed through generic ACP protocol surfaces.
+
+Capabilities enter the integration under these rules:
+
+- model-facing tools use presentation metadata from the Harness tool registry and map to generic ACP `tool_call` / `tool_call_update` messages by default; the transport does not reimplement behavior based on tool names;
+- human commands are discovered only from plugins that actually call `ctx.commands.register()`; model-only tools are never presented as slash commands;
+- ACP-specific adaptation is added only for client interaction or lifecycle concerns such as approval, structured elicitation, incremental terminal output, cancellation, restore, and teardown;
+- Harness-internal policies such as spill, pruning, timeouts, and loop guards are not advertised as ACP capabilities; ACP projects only their visible results and explicit failures;
+- the standalone launcher maintains a curated editor profile rather than mechanically copying the complete official profile. Official-profile reconciliation reports additions, removals, and dependency differences, but inclusion remains an explicit decision based on publication status, editor value, protocol expressibility, and isolation requirements.
 
 ## Stage A: Align with the Latest Stable ACP v1
 
@@ -32,25 +44,30 @@ Remove the gap between the older SDK and the latest stable v1 protocol so later 
 - new, load, resume, cancellation, elicitation, and configuration updates retain current session isolation;
 - initialization advertises only capabilities verified through the real composition.
 
-## Stage B: Align with the Complete Official Harness Profile
+## Stage B: Establish the Editor Profile and ACP Projection Closure
+
+Status: completed in `0.7.0`. See the [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md) for the review and lifecycle decisions and [`config/editor-profile.json`](../config/editor-profile.json) for the machine-checked manifest.
 
 ### Objective
 
-Bring the standalone launcher's Harness capability set close to the complete official profile without moving domain behavior into the transport.
+Define a Harness editor profile for the standalone launcher and verify that each selected published capability works reliably through generic ACP projection, cancellation, and lifecycle management. This stage neither implements nor copies Harness domain capabilities in this repository, and it does not aim to cover the complete official profile.
 
 ### Deliverables
 
-- Treat the official bundle/profile composition and actual plugin source as authoritative, with automated reconciliation instead of a drifting handwritten plugin or command list;
-- compose web search/fetch, enhanced file search, LSP, persistent terminals, subagents, workflows, spill, tool-result pruning, timeout policy, and loop guards;
-- expose only human commands whose plugins actually call `ctx.commands.register()`, never model-only tools;
-- compose each command with its domain service, provider, and lifecycle policy;
-- add package dependency closure, Cordis Loader, runtime closure, and official-profile difference checks.
+- define editor-profile admission rules: a capability must be independently published, run without a Harness checkout, suit a stdio editor deployment, degrade safely, and preserve session, connection, agent, cwd, and cancellation isolation;
+- use the official bundle/profile and actual plugin source as references for candidate capabilities and dependency relationships, automatically reporting additions, removals, required providers, and critical-consumer differences without copying the composition or changing defaults automatically;
+- compose the complete Service Definition, Provider, Consumer, and lifecycle policy for every selected existing Harness capability; satisfying the admission rules makes a published package eligible but does not include it automatically, so web search/fetch, enhanced file search, LSP, persistent terminals, subagents, and workflows still require explicit review and selection;
+- project model-facing tools through the generic ACP tool-card path using Harness `presentCall`, `presentResult`, and `presentationMeta`; add specialized projection only when ACP/Zed provides a stable and materially useful representation;
+- expose only human commands whose plugins actually call `ctx.commands.register()`, without a handwritten command list and without presenting model-only tools as slash commands;
+- add only ACP-specific cancellation, settlement, late-event suppression, and teardown handling for persistent terminals, subagents, and workflows; spill, tool-result pruning, timeouts, and loop guards remain Harness-internal policies;
+- add package dependency closure, Cordis Loader, packed-install runtime closure, and editor/official-profile difference checks.
 
 ### Acceptance
 
-- A clean installation loads the complete composition outside a Harness checkout;
-- reconciliation reports official-profile additions or removals of human commands, required providers, and critical consumers;
-- real ACP flows execute at least one newly added human command, tool, subagent, and workflow path;
+- a clean installation loads the reviewed editor profile and its complete dependency closure outside a Harness checkout; missing optional external providers are diagnosed explicitly without advertising unsupported capabilities;
+- reconciliation reports official-profile changes to candidate capabilities, human commands, required providers, and critical consumers without changing the published composition before review;
+- real ACP flows execute at least one newly selected human command and model-facing tool; if the editor profile includes subagents, workflows, or persistent terminals, their cancellation, settlement, and teardown paths are each covered;
+- the transport contains no domain implementation for web, LSP, subagents, workflows, spill, pruning, timeouts, or loop guards, and tools without a dedicated ACP representation use the generic projection;
 - multiple sessions, connections, and Zed processes do not share derived state or cancellation signals.
 
 ## Stage C: Additional Directories and MCP
@@ -113,27 +130,6 @@ Improve Zed presentation for long-running work, terminals, and multimedia result
 - content that cannot be persisted and replayed without loss fails explicitly instead of producing incomplete history;
 - rich content remains owned by the selected model route, session log, and attachment store.
 
-## Stage F: Distribution, Authentication, Remote Transport, and ACP v2
-
-### Objective
-
-Move from developer installation to a discoverable and diagnosable distribution while establishing a controlled path to remote deployments and the next protocol generation.
-
-### Deliverables
-
-- Publish ACP Registry metadata and standard installation configuration;
-- implement ACP authentication state, login, and logout separately from model-provider credentials;
-- expose version, configuration-source, provider-loading, and capability-negotiation diagnostics without writing secrets to stdout or logs;
-- evaluate HTTP and WebSocket deployments after the remote transport stabilizes, including connection-level identity isolation;
-- ship ACP v2 only as an explicit compatibility preview until both v1 and v2 protocol tests support a default migration decision.
-
-### Acceptance
-
-- Users can install and start the plugin from the Registry without entering a source path;
-- agent-service authentication, model API credentials, and Zed session identities remain separate;
-- a remote connection cannot list, resume, or operate another identity's sessions;
-- ACP v2 Draft changes cannot break stable v1 users.
-
 ## Cross-Cutting Requirements
 
 Every stage preserves these rules:
@@ -148,4 +144,4 @@ Every stage preserves these rules:
 
 ## Recommended Order
 
-Implement `A → B → C → D → E → F`. Stage A fixes the protocol baseline and Stage B completes the Harness capability set, making both prerequisites for later work. Stages C and D expand resource scope and durable state after isolation and ownership rules are established. Stage E improves presentation. Stage F handles distribution and the next protocol generation without forcing production users onto Draft capabilities.
+Implement `A → B → C → D → E`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stages C and D expand resource scope and durable state after isolation and ownership rules are established. Stage E improves presentation.

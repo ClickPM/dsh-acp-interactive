@@ -6,9 +6,21 @@
 
 ## 当前基线
 
-版本 `0.6.0` 提供独立的 `dsh-acp-interactive` 启动命令、包内 Cordis profile 和按平台互斥的原生 shell，并以 `@agentclientprotocol/sdk 1.4.0` 作为稳定 ACP v1 基线。用户无需下载或修改 DeepSeek Harness 源码，即可在 Zed 中使用文本与 reasoning 流、工具卡片、diff、审批、计划、模型与 reasoning effort 选择、权限 preset、图片、resource link、结构化提问、持久 session、官方人类斜杠命令以及 user-invocable skill。
+版本 `0.7.0` 在 `0.6.0` 的稳定 ACP v1 基线上完成 editor profile 与投影闭包：加入已发布的本地 filesystem search、cooperative timeout policy、可审计的准入／暂缓决定、官方 profile 只读对账，以及 packed-install runtime closure 验证。用户无需下载或修改 DeepSeek Harness 源码，即可在 Zed 中使用文本与 reasoning 流、通用工具卡片、diff、审批、计划、模型与 reasoning effort 选择、权限 preset、图片、resource link、结构化提问、持久 session、人类斜杠命令、user-invocable skill 和 `glob`／`grep`。
 
-当前实现以 ACP v1 为生产协议。ACP v2 仍属于 Draft，不作为近期功能的默认基线。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
+当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
+
+## 能力接入边界
+
+本仓库不实现 DeepSeek Harness 的领域能力。Web、文件搜索、LSP、终端、subagent、workflow、spill、tool-result pruning、timeout 和 loop guard 等能力的定义、执行逻辑、策略与领域事件由各自的 Harness 插件维护。本仓库只负责两类工作：一是把适合编辑器场景的已发布 Harness 插件装配进独立 launcher，并保证安装与运行时依赖闭包；二是把这些插件已经提供的请求、事件和生命周期通过 ACP 通用协议面可靠地提供给 Zed。
+
+能力按以下规则接入：
+
+- 模型工具默认通过 Harness 工具注册表的展示元数据映射为通用 ACP `tool_call` / `tool_call_update`，不按工具名在 transport 中重新实现领域逻辑；
+- 人类命令只从实际调用 `ctx.commands.register()` 的插件动态发现，模型专用工具不伪装成斜杠命令；
+- 审批、结构化提问、终端增量、取消、恢复和 teardown 等涉及客户端交互或生命周期的能力，才增加相应 ACP 适配；
+- spill、pruning、timeout 和 loop guard 等 Harness 内部策略不作为 ACP 能力公布，ACP 只投影其可见结果和明确错误；
+- 独立 launcher 维护的是经过筛选的 editor profile，不机械复制官方完整 profile。官方 profile 对账只报告新增、移除和依赖差异，由本仓库根据发布状态、编辑器价值、可表达性和隔离要求决定是否接入，不自动改变用户行为。
 
 ## 阶段 A：对齐最新稳定 ACP v1
 
@@ -32,25 +44,30 @@
 - 新建、加载、恢复、取消、elicitation 和配置更新保持现有 session 隔离；
 - 初始化响应只公布已经过真实组合验证的能力。
 
-## 阶段 B：对齐官方完整 Harness profile
+## 阶段 B：建立 Editor Profile 与 ACP 投影闭包
+
+状态：已在 `0.7.0` 完成。评审范围和生命周期决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md)，机器可检查清单见 [`config/editor-profile.json`](../config/editor-profile.json)。
 
 ### 目标
 
-让独立 launcher 的 Harness 能力集合接近官方完整 profile，同时保持 transport 不承载领域逻辑。
+为独立 launcher 定义适合 Zed/ACP 场景的 Harness editor profile，并验证所选的已发布能力能够通过通用 ACP 投影、取消和生命周期管理可靠工作。此阶段不在本仓库实现或复制 Harness 领域能力，也不以覆盖官方完整 profile 为目标。
 
 ### 交付
 
-- 以官方 bundle/profile 组合和实际插件源码为权威来源，建立自动对账，避免在插件仓库维护易漂移的手写插件或命令清单；
-- 组合 web search/fetch、增强文件搜索、LSP、持久终端、subagent、workflow、spill、tool-result pruning、timeout 与 loop guards；
-- 仅把实际调用 `ctx.commands.register()` 的人类命令加入 ACP 目录，不把纯模型工具当作斜杠命令；
-- 每个命令随其领域服务、provider 和 lifecycle policy 一起组合；
-- 增加 package dependency closure、Cordis Loader、runtime closure 和官方 profile 差异检查。
+- 定义 editor profile 的准入规则：能力已经独立发布、不依赖 Harness checkout、适合 stdio 编辑器场景、能够安全降级，并满足 session、连接、agent、cwd 和取消隔离；
+- 以官方 bundle/profile 和实际插件源码作为候选能力与依赖关系的参考，自动报告新增、移除、必要 provider 和关键 consumer 差异，但不自动复制组合或改变用户默认行为；
+- 对选入的现有 Harness 能力组合完整的 Service Definition、Provider、Consumer 和 lifecycle policy；已发布包满足准入规则只代表具备候选资格，web search/fetch、增强文件搜索、LSP、持久终端、subagent 和 workflow 仍须经过显式评审和选择后才纳入；
+- 模型工具统一复用 Harness `presentCall`、`presentResult` 和 `presentationMeta` 投影为 ACP 工具卡片；只有 ACP/Zed 存在稳定且有价值的专用表达时才增加特化映射；
+- 仅把实际调用 `ctx.commands.register()` 的人类命令加入 ACP 目录，不维护手写命令清单，也不把纯模型工具当作斜杠命令；
+- 对持久终端、subagent 和 workflow 只补充 ACP 所需的取消、settlement、迟到事件抑制和 teardown 适配；spill、tool-result pruning、timeout 与 loop guards 保持为 Harness 内部策略；
+- 增加 package dependency closure、Cordis Loader、packed-install runtime closure 和 editor/official profile 差异检查。
 
 ### 验收
 
-- 干净安装的插件可以在没有 Harness checkout 的目录中加载完整组合；
-- 官方 profile 新增或移除人类命令、必要 provider 或关键 consumer 时，对账检查能够报告差异；
-- 至少通过真实 ACP 流程执行新增的人类命令、工具、subagent 和 workflow 路径；
+- 干净安装的插件可以在没有 Harness checkout 的目录中加载经评审选定的 editor profile 及其完整依赖闭包，缺少可选外部 provider 时不虚假公布能力且能明确诊断；
+- 官方 profile 新增或移除候选能力、人类命令、必要 provider 或关键 consumer 时，对账检查能够报告差异，但不会未经评审改变发布组合；
+- 至少通过真实 ACP 流程执行一个新纳入的人类命令和模型工具；若 editor profile 纳入 subagent、workflow 或持久终端，还必须分别覆盖其取消、settlement 和 teardown 路径；
+- transport 中不出现 web、LSP、subagent、workflow、spill、pruning、timeout 或 loop guard 的领域实现，模型工具在没有专用 ACP 表达时使用通用投影；
 - 多 session、多连接和多 Zed 进程之间不共享派生状态或取消信号。
 
 ## 阶段 C：Additional directories 与 MCP
@@ -113,27 +130,6 @@
 - 不能无损持久化或重放的内容明确失败，不静默退化成不完整历史；
 - 丰富内容仍遵循所选模型 route、session 日志和 attachment 所有权。
 
-## 阶段 F：分发、认证、远程 transport 与 ACP v2
-
-### 目标
-
-将开发者安装方式升级为可发现、可诊断的发行体验，并为远程部署和下一代协议预留受控路径。
-
-### 交付
-
-- 发布 ACP Registry 元数据和标准安装配置；
-- 实现 ACP authentication state、登录与 logout，并与模型 provider 凭据分开管理；
-- 增加版本、配置来源、provider 加载和能力协商诊断，但不向 stdout 或日志泄露密钥；
-- 在远程 transport 稳定后评估 HTTP/WebSocket 部署以及连接级身份隔离；
-- 将 ACP v2 作为显式 opt-in compatibility preview，建立 v1/v2 双协议测试后再考虑默认切换。
-
-### 验收
-
-- 用户可以从 Registry 安装并启动插件，不需要手写源码路径；
-- Agent 服务认证、模型 API 凭据和 Zed session 身份保持独立；
-- 远程连接不能列出、恢复或操作其他身份拥有的 session；
-- v2 Draft 变化不会破坏稳定 v1 用户。
-
 ## 横向要求
 
 每个阶段都必须保持以下约束：
@@ -148,4 +144,4 @@
 
 ## 推荐顺序
 
-按 `A → B → C → D → E → F` 推进。阶段 A 固定协议基线，阶段 B 完成 Harness 能力闭包；二者是后续工作的前置。阶段 C 和 D 分别扩展资源作用域与持久状态，必须在隔离与所有权规则稳定后实施。阶段 E 改善表现力，阶段 F 处理分发与下一代协议，不应提前迫使生产用户依赖 Draft 能力。
+按 `A → B → C → D → E` 推进。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 和 D 分别扩展资源作用域与持久状态，必须在隔离与所有权规则稳定后实施。阶段 E 改善表现力。

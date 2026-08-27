@@ -1,0 +1,188 @@
+{
+  "schemaVersion": 1,
+  "admissionRules": [
+    "published-package",
+    "checkout-independent-runtime",
+    "stdio-editor-value",
+    "safe-degradation",
+    "session-connection-agent-cwd-cancellation-isolation"
+  ],
+  "localCompositionPackages": [
+    "@deepseek-ai/dsh-agent-spine-demo",
+    "@deepseek-ai/dsh-attachment-local",
+    "@deepseek-ai/dsh-bash-sandbox",
+    "@deepseek-ai/dsh-command-compact",
+    "@deepseek-ai/dsh-command-feedback",
+    "@deepseek-ai/dsh-command-goal",
+    "@deepseek-ai/dsh-commands",
+    "@deepseek-ai/dsh-compaction-basic",
+    "@deepseek-ai/dsh-credentials-local",
+    "@deepseek-ai/dsh-fs-observation-policy",
+    "@deepseek-ai/dsh-fs-sandbox",
+    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-pi-ai",
+    "@deepseek-ai/dsh-permission-presets",
+    "@deepseek-ai/dsh-plan-mode",
+    "@deepseek-ai/dsh-pwsh-sandbox",
+    "@deepseek-ai/dsh-sandbox-local",
+    "@deepseek-ai/dsh-sandbox-policy",
+    "@deepseek-ai/dsh-session-checkpoint-policy",
+    "@deepseek-ai/dsh-session-persistence-jsonl",
+    "@deepseek-ai/dsh-session-projection",
+    "@deepseek-ai/dsh-session-query-sqlite",
+    "@deepseek-ai/dsh-settings-file",
+    "@deepseek-ai/dsh-shell-env",
+    "@deepseek-ai/dsh-subprocess-local",
+    "@deepseek-ai/dsh-token-meter",
+    "@deepseek-ai/dsh-tool-ask-user",
+    "@deepseek-ai/dsh-tool-bash",
+    "@deepseek-ai/dsh-tool-call-timeout-policy",
+    "@deepseek-ai/dsh-tool-fs",
+    "@deepseek-ai/dsh-tool-fs-search",
+    "@deepseek-ai/dsh-tool-pwsh",
+    "@deepseek-ai/dsh-tool-todo",
+    "@deepseek-ai/dsh-user-approval",
+    "@deepseek-ai/dsh-user-questions"
+  ],
+  "selections": [
+    {
+      "id": "filesystem-search",
+      "decision": "selected",
+      "reason": "Packaged ripgrep provides cwd-scoped glob and grep without an external account; the tool owns presentation metadata and cooperatively observes cancellation.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-tool-fs-search",
+        "@deepseek-ai/dsh-tool-call-timeout-policy",
+        "@deepseek-ai/dsh-subprocess-local",
+        "@deepseek-ai/dsh-tools",
+        "@deepseek-ai/dsh-system-prompt"
+      ]
+    },
+    {
+      "id": "goal-command-and-tools",
+      "decision": "selected",
+      "reason": "The agent spine composes the persisted goal service, round driver, and model tools; command-goal is the matching human consumer discovered through ctx.commands.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-agent-spine-demo",
+        "@deepseek-ai/dsh-command-goal",
+        "@deepseek-ai/dsh-commands"
+      ]
+    },
+    {
+      "id": "generic-tool-projection",
+      "decision": "selected",
+      "reason": "All selected model tools remain registry-owned and project through presentCall, presentResult, and durable presentationMeta.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-tools"
+      ]
+    }
+  ],
+  "deferred": [
+    {
+      "id": "web",
+      "reason": "Search-provider availability and editor-safe diagnostics require a separate explicit review.",
+      "excludedCompositionPackages": ["@deepseek-ai/dsh-web", "@deepseek-ai/dsh-tool-web"]
+    },
+    {
+      "id": "lsp",
+      "reason": "Language-server discovery and per-session process teardown require a separate explicit review.",
+      "excludedCompositionPackages": ["@deepseek-ai/dsh-lsp", "@deepseek-ai/dsh-lsp-stdio"]
+    },
+    {
+      "id": "persistent-terminal",
+      "reason": "Incremental output, settlement, and teardown adaptation are not part of this profile revision.",
+      "excludedCompositionPackages": ["@deepseek-ai/dsh-terminal", "@deepseek-ai/dsh-terminal-bash"]
+    },
+    {
+      "id": "subagent-and-workflow",
+      "reason": "Child settlement, late-event suppression, cancellation, and connection teardown need dedicated ACP coverage before inclusion.",
+      "excludedCompositionPackages": [
+        "@deepseek-ai/dsh-subagent",
+        "@deepseek-ai/dsh-tool-subagent",
+        "@deepseek-ai/dsh-tool-workflow",
+        "@deepseek-ai/dsh-workflow-worker-thread"
+      ]
+    }
+  ],
+  "reconciliation": {
+    "referenceFiles": [
+      "packages/bundle/base/cordis.patch.yml",
+      "apps/cli/config/agent-presets/standard/agent.cordis.yml"
+    ],
+    "candidatePatterns": [
+      "^@deepseek-ai/dsh-(?:(?:command-.+)|permission-presets$|plan-mode$|skill-filesystem$|goal(?:-.+)?$|jobs-local$|web(?:-.+)?$|lsp(?:-.+)?$|terminal(?:-.+)?$|subagent(?:-.+)?$|workflow(?:-.+)?$|spill(?:-.+)?$|compaction-tool-result-pruner$|tool-(?:fs-search|goal|jobs|web|ralph|subagent(?:-.+)?|workflow)$|tool-call-timeout-policy$)"
+    ],
+    "providerPatterns": [
+      "^@deepseek-ai/dsh-(?:skill-filesystem$|goal(?:-.+)?$|jobs-local$|web(?:-.+)?$|lsp(?:-.+)?$|terminal(?:-.+)?$|subagent(?:-.+)?$|workflow(?:-.+)?$|spill(?:-.+)?$|compaction-tool-result-pruner$|tool-call-timeout-policy$)"
+    ],
+    "consumerPatterns": [
+      "^@deepseek-ai/dsh-(?:command-.+|permission-presets$|plan-mode$|tool-(?:fs-search|goal|jobs|web|ralph|subagent(?:-.+)?|workflow)$)"
+    ],
+    "snapshot": {
+      "candidatePackages": [
+        "@deepseek-ai/dsh-command-compact",
+        "@deepseek-ai/dsh-command-feedback",
+        "@deepseek-ai/dsh-command-goal",
+        "@deepseek-ai/dsh-compaction-tool-result-pruner",
+        "@deepseek-ai/dsh-goal",
+        "@deepseek-ai/dsh-goal-round-driver",
+        "@deepseek-ai/dsh-jobs-local",
+        "@deepseek-ai/dsh-permission-presets",
+        "@deepseek-ai/dsh-plan-mode",
+        "@deepseek-ai/dsh-skill-filesystem",
+        "@deepseek-ai/dsh-spill-local",
+        "@deepseek-ai/dsh-spill-policy",
+        "@deepseek-ai/dsh-subagent",
+        "@deepseek-ai/dsh-subagent-fork-in-process",
+        "@deepseek-ai/dsh-subagent-spawn-in-process",
+        "@deepseek-ai/dsh-tool-call-timeout-policy",
+        "@deepseek-ai/dsh-tool-fs-search",
+        "@deepseek-ai/dsh-tool-goal",
+        "@deepseek-ai/dsh-tool-jobs",
+        "@deepseek-ai/dsh-tool-ralph",
+        "@deepseek-ai/dsh-tool-subagent",
+        "@deepseek-ai/dsh-tool-subagent-control",
+        "@deepseek-ai/dsh-tool-subagent-control/list-agents",
+        "@deepseek-ai/dsh-tool-subagent-report",
+        "@deepseek-ai/dsh-tool-web",
+        "@deepseek-ai/dsh-tool-workflow",
+        "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-search-deepseek",
+        "@deepseek-ai/dsh-workflow-worker-thread"
+      ],
+      "humanCommands": ["compact", "feedback", "goal", "permission", "plan"],
+      "requiredProviders": [
+        "@deepseek-ai/dsh-compaction-tool-result-pruner",
+        "@deepseek-ai/dsh-goal",
+        "@deepseek-ai/dsh-goal-round-driver",
+        "@deepseek-ai/dsh-jobs-local",
+        "@deepseek-ai/dsh-skill-filesystem",
+        "@deepseek-ai/dsh-spill-local",
+        "@deepseek-ai/dsh-spill-policy",
+        "@deepseek-ai/dsh-subagent",
+        "@deepseek-ai/dsh-subagent-fork-in-process",
+        "@deepseek-ai/dsh-subagent-spawn-in-process",
+        "@deepseek-ai/dsh-tool-call-timeout-policy",
+        "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-search-deepseek",
+        "@deepseek-ai/dsh-workflow-worker-thread"
+      ],
+      "criticalConsumers": [
+        "@deepseek-ai/dsh-command-compact",
+        "@deepseek-ai/dsh-command-feedback",
+        "@deepseek-ai/dsh-command-goal",
+        "@deepseek-ai/dsh-permission-presets",
+        "@deepseek-ai/dsh-plan-mode",
+        "@deepseek-ai/dsh-tool-fs-search",
+        "@deepseek-ai/dsh-tool-goal",
+        "@deepseek-ai/dsh-tool-jobs",
+        "@deepseek-ai/dsh-tool-ralph",
+        "@deepseek-ai/dsh-tool-subagent",
+        "@deepseek-ai/dsh-tool-subagent-control",
+        "@deepseek-ai/dsh-tool-subagent-control/list-agents",
+        "@deepseek-ai/dsh-tool-subagent-report",
+        "@deepseek-ai/dsh-tool-web",
+        "@deepseek-ai/dsh-tool-workflow"
+      ]
+    }
+  }
+}

@@ -8,7 +8,7 @@
 
 ## 是否需要官方支持
 
-运行不需要 Zed 为 DeepSeek 或 dsh 增加专用内置支持。只要当前 Zed 版本支持在 `agent_servers` 中启动自定义 ACP agent，就可以把 dsh 的启动命令配置进去。Zed 官方支持会影响 Registry 一键安装、非标准 `_meta` 扩展和新 ACP 功能的兼容速度，但不是第一阶段的前置条件。
+运行不需要 Zed 为 DeepSeek 或 dsh 增加专用内置支持。只要当前 Zed 版本支持在 `agent_servers` 中启动自定义 ACP agent，就可以把 dsh 的启动命令配置进去。Zed 官方支持会影响非标准 `_meta` 扩展和新 ACP 功能的兼容速度，但不是第一阶段的前置条件。
 
 DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent 和事件模型；实际模型由外围 Cordis 组合注册的 provider 选择。组合 `dsh-settings-file`、`dsh-credentials-local` 和 `dsh-llm-pi-ai` 后，ACP server 可以读取当前用户 dsh home 中与 Pi Agent 桌面版相同的 provider profile 和凭据引用，同时保留各进程与 session 的隔离。
 
@@ -18,6 +18,8 @@ DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent �
 - `dsh-acp-interactive` 是面向编辑器和人的独立 UI transport，不被 automation ACP 的最小协议面约束。
 - 本仓库发布 `dsh-acp-interactive` launcher 与 `config/cordis.yml` 完整组合；Zed 直接启动安装后的命令，不依赖 DeepSeek Harness 源码 checkout。
 - ACP 只投影 dsh 已经拥有的状态，不让 Zed 代替 dsh 执行工具或扩大文件访问范围。
+
+独立 launcher 使用经过评审的 editor profile，不自动复制官方完整 profile。`config/editor-profile.json` 固化准入规则、选入能力、暂缓能力和官方参考快照；对账检查只报告候选包、人类命令、必要 provider 与关键 consumer 的变化，必须经显式评审后才修改 `config/cordis.yml`。当前选入本地 filesystem search 及其 cooperative timeout policy；web、LSP、持久终端、subagent 与 workflow 暂缓。相关决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md)。
 
 自包含启动器的长期约束记录在 [Agent Note](agent-notes/2026-08-26-self-contained-launcher.md)。
 
@@ -105,7 +107,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 
 ## 后续阶段
 
-后续开发按协议基线、官方 Harness profile 对齐、Additional directories 与 MCP、完整 Session 管理、丰富内容与实时 UI、分发与下一代协议六个阶段推进。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
+后续开发按协议基线、Editor Profile 与 ACP 投影闭包、Additional directories 与 MCP、完整 Session 管理、丰富内容与实时 UI 五个阶段推进。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
 
 ## Zed 连接方式
 

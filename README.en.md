@@ -14,7 +14,7 @@ Before an npm release, install globally from GitHub and pin an audited commit:
 npm install --global github:cking000bigdemon/dsh-acp-interactive#<sha>
 ```
 
-GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the bundled `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and shell capabilities, permissions, persistence, all official slash commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+GitHub installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
@@ -52,7 +52,7 @@ The bundled composition explicitly mounts these three provider dependencies. `se
 
 ## Protocol
 
-The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall` and `presentResult` methods; generic, diff, and terminal intents map to ACP cards without switching on tool names. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
+The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall`, `presentResult`, and durable `presentationMeta`; generic, diff, and terminal intents map to ACP cards without switching on tool names. The editor profile's new `glob` and `grep` tools execute in the published Harness filesystem-search plugin with its packaged ripgrep binary and use the same generic projection. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
 
 `session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
@@ -60,7 +60,7 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 The ACP command catalog merges the exact agent's `ctx.commands` view with the `userInvocable` skills discovered for its cwd and scope. A real command wins a same-name collision. `commands/change` and `skills/change` trigger full per-session replacement updates; incomplete or failed skill observations retain the last complete skill entries, and a complete empty result removes them. A leading `/<skill-name>` that still resolves to a user-invocable definition enters the ordinary user-message path, where `@deepseek-ai/dsh-tool-skill` performs the standard logged `agent/pre-step` injection. Unknown slash names remain unknown commands, and model-only skills are neither advertised nor accepted as explicit ACP skill invocations.
 
-The catalog does not declare domain commands itself. An official full profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback` with their corresponding domain providers; this bridge executes registered commands and does not treat model tools as slash commands.
+The catalog does not declare domain commands itself. The bundled editor profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback` with their corresponding domains/providers, while discovery still comes only from actual `ctx.commands.register()` calls. This bridge executes registered commands and does not treat model tools as slash commands.
 
 Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, MCP servers, and additional directories are rejected explicitly. Direct slash commands remain text-only.
 
@@ -173,9 +173,11 @@ npm install
 npm test
 npm run typecheck
 npm run build
+npm run check:profile
+npm run verify:packed
 ```
 
-The standalone repository has no runtime dependency on a DeepSeek Harness checkout. For development compatibility, set `DSH_HARNESS_ROOT` to a read-only official checkout or place one at the sibling `../deepseek-harness` path, then run `npm run test:harness`. The command copies the current official `packages/acp/acp-interactive/tests` into an ignored temporary directory and runs those assertions against this repository's `src`; `npm run test:all` chains the repository and official compatibility suites.
+The standalone repository has no runtime dependency on a DeepSeek Harness checkout. For development compatibility, set `DSH_HARNESS_ROOT` to a read-only official checkout or place one at the sibling `../deepseek-harness` path, then run `npm run test:harness`. The command copies the current official `packages/acp/acp-interactive/tests` into an ignored temporary directory and runs those assertions against this repository's `src`. `check:profile` reconciles official candidate packages, human commands, required providers, and critical consumers, reporting review-required drift without rewriting the release composition. `verify:packed` installs the tarball outside the repository and starts the real ACP launcher. `npm run test:all` chains repository tests, official compatibility tests, and profile reconciliation.
 
 See the [design document](docs/design.md) for the implemented scope and the [development roadmap](docs/roadmap.en.md) for the recommended sequence and acceptance criteria.
 

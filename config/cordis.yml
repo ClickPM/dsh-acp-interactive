@@ -25,6 +25,8 @@
     workspaceRoot: !!js process.cwd()
 - id: subprocess
   name: '@deepseek-ai/dsh-subprocess-local'
+- id: tool-call-timeout-policy
+  name: '@deepseek-ai/dsh-tool-call-timeout-policy'
 
 # The shell executor and model-facing tool must use the same dialect. Windows
 # selects PowerShell; POSIX hosts select bash. The agent spine's bundled bash
@@ -119,6 +121,13 @@
   name: '@deepseek-ai/dsh-fs-observation-policy'
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  config:
+    # Deterministic modification-time head is preferable to sampling in an
+    # editor, where the complete formatted result remains available via spill
+    # when a deployment composes that optional provider.
+    sampleOverCapGlobResults: false
 - id: acp-interactive
   name: '../lib/index.js'
   config:
