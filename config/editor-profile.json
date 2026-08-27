@@ -41,8 +41,11 @@
     "@deepseek-ai/dsh-tool-fs-search",
     "@deepseek-ai/dsh-tool-pwsh",
     "@deepseek-ai/dsh-tool-todo",
+    "@deepseek-ai/dsh-tool-web",
     "@deepseek-ai/dsh-user-approval",
-    "@deepseek-ai/dsh-user-questions"
+    "@deepseek-ai/dsh-user-questions",
+    "@deepseek-ai/dsh-web",
+    "@deepseek-ai/dsh-web-search-deepseek"
   ],
   "selections": [
     {
@@ -55,6 +58,17 @@
         "@deepseek-ai/dsh-subprocess-local",
         "@deepseek-ai/dsh-tools",
         "@deepseek-ai/dsh-system-prompt"
+      ]
+    },
+    {
+      "id": "web",
+      "decision": "selected",
+      "reason": "DeepSeek web search provider is available with the user's API key; the model-facing web tool projects through the generic ACP card with cwd and cancellation isolation.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-search-deepseek",
+        "@deepseek-ai/dsh-tool-web",
+        "@deepseek-ai/dsh-tools"
       ]
     },
     {
@@ -88,11 +102,6 @@
     }
   ],
   "deferred": [
-    {
-      "id": "web",
-      "reason": "Search-provider availability and editor-safe diagnostics require a separate explicit review.",
-      "excludedCompositionPackages": ["@deepseek-ai/dsh-web", "@deepseek-ai/dsh-tool-web"]
-    },
     {
       "id": "lsp",
       "reason": "Language-server discovery and per-session process teardown require a separate explicit review.",
