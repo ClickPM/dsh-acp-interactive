@@ -94,7 +94,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 组合 `ctx.userQuestions` 后，为本连接精确拥有的根 agent 注册稳定 ACP form elicitation provider，结构化投影普通问题、多选、自由文本和 plan-review detail，并区分用户关闭、turn 取消与 request cancellation；
 - 示例组合加入 attachment store、plan mode、user-questions 与 `ask_user_question` consumer，并公布可选 vision route。
 
-本阶段仍不接入 MCP server 与 additional directories。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应稳定 ACP capability 时启用。
+本阶段仍不接入 MCP server。Additional directories 的多根沙箱与跨能力强制执行已划归独立的 `dsh-additional-directories` DSH 插件项目，本仓库在其完整能力闭包可用前继续明确拒绝非空值。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应稳定 ACP capability 时启用。
 
 ## 第五阶段
 
@@ -107,7 +107,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 
 ## 后续阶段
 
-后续开发按协议基线、Editor Profile 与 ACP 投影闭包、Additional directories 与 MCP、完整 Session 管理、丰富内容与实时 UI 五个阶段推进。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
+后续开发按协议基线、Editor Profile 与 ACP 投影闭包、session-scoped MCP、完整 Session 管理、丰富内容与实时 UI 五个阶段推进。Additional directories 由独立 DSH 插件项目负责，不属于本仓库的交付路线。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
 
 ## Zed 连接方式
 

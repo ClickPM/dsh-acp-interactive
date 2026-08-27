@@ -14,6 +14,8 @@ Production uses ACP v1. The plugin advertises an optional protocol capability on
 
 This repository does not implement DeepSeek Harness domain capabilities. Web access, file search, LSP, terminals, subagents, workflows, spill, tool-result pruning, timeouts, loop guards, and their execution semantics, policies, and domain events remain owned by their Harness plugins. This repository owns only two kinds of work: composing published Harness plugins that are suitable for an editor into the standalone launcher with a complete install/runtime dependency closure, and reliably exposing the requests, events, and lifecycle those plugins already provide to Zed through generic ACP protocol surfaces.
 
+Multi-root registration, sandbox policy, and cross-capability enforcement for Additional directories belong to the independent `dsh-additional-directories` DSH plugin project, not this repository. Until that project provides a complete published Service Definition, Provider, and Consumer closure, this bridge continues to reject non-empty `additionalDirectories` explicitly and makes no release commitment for the capability in this roadmap.
+
 Capabilities enter the integration under these rules:
 
 - model-facing tools use presentation metadata from the Harness tool registry and map to generic ACP `tool_call` / `tool_call_update` messages by default; the transport does not reimplement behavior based on tool names;
@@ -70,25 +72,23 @@ Define a Harness editor profile for the standalone launcher and verify that each
 - the transport contains no domain implementation for web, LSP, subagents, workflows, spill, pruning, timeouts, or loop guards, and tools without a dedicated ACP representation use the generic projection;
 - multiple sessions, connections, and Zed processes do not share derived state or cancellation signals.
 
-## Stage C: Additional Directories and MCP
+## Stage C: Session-Scoped MCP
 
 ### Objective
 
-Implement ACP's stable additional workspace roots and accept MCP server configuration supplied by Zed.
+Accept MCP server configuration supplied by Zed and adapt the published Harness MCP client capability into a live composition owned by the exact session.
 
 ### Deliverables
 
-- Validate and pass `additionalDirectories` through `session/new`, `session/load`, and `session/resume`;
-- map additional roots into Harness filesystem, sandbox, and observation policies without changing the primary `cwd` semantics for relative paths;
 - own an independent MCP server lifecycle, tool registration, and teardown for each session;
-- apply the same agent-scope checks to commands, skills, MCP tools, file access, and approvals;
+- apply the same agent-scope checks to MCP tools and approvals that existing commands, skills, and tools use;
 - define failures for unsupported MCP transports, startup failure, cancellation, and configuration changes during resume.
 
 ### Acceptance
 
-- Primary and additional root access follows read-only, workspace-write, and danger-full-access policy;
-- one session's MCP tools, roots, and failures never enter another session;
-- load and resume use the complete roots and MCP configuration from the request without inheriting another connection's live state.
+- One session's MCP tools, configuration, and failures never enter another session;
+- load and resume use only the complete MCP configuration in the current request without inheriting another connection's live state;
+- connection closure, session close, and cancellation await complete quiescence of MCP calls, reconnect work, tool registrations, and child processes.
 
 ## Stage D: Complete Session Management
 
@@ -144,4 +144,4 @@ Every stage preserves these rules:
 
 ## Recommended Order
 
-Implement `A → B → C → D → E`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stages C and D expand resource scope and durable state after isolation and ownership rules are established. Stage E improves presentation.
+Implement `A → B → C → D → E`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stage C adds per-session external-tool lifecycle and Stage D expands durable state; both follow stable isolation and ownership rules. Stage E improves presentation. Additional directories proceeds in an independent DSH plugin project and is not part of this sequence.

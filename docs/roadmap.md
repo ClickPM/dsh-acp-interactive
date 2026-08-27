@@ -14,6 +14,8 @@
 
 本仓库不实现 DeepSeek Harness 的领域能力。Web、文件搜索、LSP、终端、subagent、workflow、spill、tool-result pruning、timeout 和 loop guard 等能力的定义、执行逻辑、策略与领域事件由各自的 Harness 插件维护。本仓库只负责两类工作：一是把适合编辑器场景的已发布 Harness 插件装配进独立 launcher，并保证安装与运行时依赖闭包；二是把这些插件已经提供的请求、事件和生命周期通过 ACP 通用协议面可靠地提供给 Zed。
 
+Additional directories 的多根目录注册、沙箱策略与跨能力强制执行由独立的 `dsh-additional-directories` DSH 插件项目负责，不在本仓库实现。本仓库在该项目形成完整、已发布的 Service Definition、Provider 与 Consumer 闭包前继续明确拒绝非空 `additionalDirectories`，也不在本路线图中承诺其交付版本。
+
 能力按以下规则接入：
 
 - 模型工具默认通过 Harness 工具注册表的展示元数据映射为通用 ACP `tool_call` / `tool_call_update`，不按工具名在 transport 中重新实现领域逻辑；
@@ -70,25 +72,23 @@
 - transport 中不出现 web、LSP、subagent、workflow、spill、pruning、timeout 或 loop guard 的领域实现，模型工具在没有专用 ACP 表达时使用通用投影；
 - 多 session、多连接和多 Zed 进程之间不共享派生状态或取消信号。
 
-## 阶段 C：Additional directories 与 MCP
+## 阶段 C：Session-scoped MCP
 
 ### 目标
 
-接入 ACP 已稳定的额外工作区根目录，并允许 Zed 向 session 提供 MCP server 配置。
+允许 Zed 向 session 提供 MCP server 配置，并将已发布的 Harness MCP client 能力适配为精确归属于该 session 的在线组合。
 
 ### 交付
 
-- 在 `session/new`、`session/load` 和 `session/resume` 中校验并传递 `additionalDirectories`；
-- 将额外根目录映射到 Harness filesystem、sandbox 和 observation policy，不改变主 `cwd` 的相对路径语义；
 - 为每个 session 建立独立的 MCP server 生命周期、工具注册和 teardown；
-- 对命令、skill、MCP 工具、文件访问与审批执行相同的 agent scope 校验；
+- 对 MCP 工具与审批执行与现有命令、skill 和工具相同的 agent scope 校验；
 - 明确处理不可执行 MCP transport、启动失败、取消和恢复时的配置变化。
 
 ### 验收
 
-- read-only、workspace-write 和 danger-full-access 下的主目录与额外目录访问符合各自策略；
-- 一个 session 的 MCP 工具、根目录或失败不会进入另一 session；
-- load/resume 使用请求携带的完整根目录和 MCP 配置，不隐式复用其他连接的运行状态。
+- 一个 session 的 MCP 工具、配置或失败不会进入另一 session；
+- load/resume 只使用当前请求携带的完整 MCP 配置，不隐式复用其他连接的运行状态；
+- 连接关闭、session close 和取消会等待 MCP 调用、重连任务、工具注册与子进程完全停稳。
 
 ## 阶段 D：完整 Session 管理
 
@@ -144,4 +144,4 @@
 
 ## 推荐顺序
 
-按 `A → B → C → D → E` 推进。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 和 D 分别扩展资源作用域与持久状态，必须在隔离与所有权规则稳定后实施。阶段 E 改善表现力。
+按 `A → B → C → D → E` 推进。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 接入逐 session 外部工具生命周期，阶段 D 扩展持久状态；二者都必须在隔离与所有权规则稳定后实施。阶段 E 改善表现力。Additional directories 由独立 DSH 插件项目推进，不属于本顺序。
