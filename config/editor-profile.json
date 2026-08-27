@@ -74,6 +74,17 @@
       "requiredPackages": [
         "@deepseek-ai/dsh-tools"
       ]
+    },
+    {
+      "id": "session-scoped-mcp",
+      "decision": "selected",
+      "reason": "ACP request configuration is mapped into a private per-session Cordis host while every discovered tool registration delegates to the exact agent-scoped Harness tool registry.",
+      "requiredPackages": [
+        "@deepseek-ai/dsh-mcp-client",
+        "@deepseek-ai/dsh-subprocess",
+        "@deepseek-ai/dsh-timeout",
+        "@deepseek-ai/dsh-tools"
+      ]
     }
   ],
   "deferred": [

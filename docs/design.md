@@ -94,7 +94,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 组合 `ctx.userQuestions` 后，为本连接精确拥有的根 agent 注册稳定 ACP form elicitation provider，结构化投影普通问题、多选、自由文本和 plan-review detail，并区分用户关闭、turn 取消与 request cancellation；
 - 示例组合加入 attachment store、plan mode、user-questions 与 `ask_user_question` consumer，并公布可选 vision route。
 
-本阶段仍不接入 MCP server。Additional directories 的多根沙箱与跨能力强制执行已划归独立的 `dsh-additional-directories` DSH 插件项目，本仓库在其完整能力闭包可用前继续明确拒绝非空值。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应稳定 ACP capability 时启用。
+该版本阶段尚未接入 MCP server；`0.8.0` 的当前设计见下文第六阶段。Additional directories 的多根沙箱与跨能力强制执行已划归独立的 `dsh-additional-directories` DSH 插件项目，本仓库在其完整能力闭包可用前继续明确拒绝非空值。音频、embedded resource 和工具结果图片卡片明确失败或保持文字投影；form elicitation 只在客户端声明对应稳定 ACP capability 时启用。
 
 ## 第五阶段
 
@@ -104,6 +104,14 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - `commands/change` 与 `skills/change` 分别刷新各 session 的完整目录，skill provider 返回不完整结果或失败时保留上一次完整 skill 目录，连接关闭会取消进行中的发现；
 - 真实命令继续由 `commands.execute()` 直接执行；精确匹配的 user-invocable skill 作为普通用户消息进入 agent，由 `dsh-tool-skill` 完成已落账的 `agent/pre-step` 内容注入；未知斜杠名称保持 unknown command，不会进入模型；
 - 每次目录查询和显式 skill 解析都携带精确 agent scope、cwd 与请求取消信号，不共享 session 间的目录或调用状态。
+
+## 第六阶段：Session-scoped MCP（0.8.0）
+
+- ACP v1 stdio 是基线能力，初始化仅额外公布真实组合支持的 HTTP capability；SSE、ACP 代理和未知 transport 明确拒绝；
+- new/load/resume 请求中的完整 MCP 配置先完成校验，再在尚未发布的 agent setup 中安装；stdio executable 与 argv 直接传递，env 与 HTTP headers 不写 session log、不进入普通诊断或模型上下文；
+- 每个 session 使用私有 Cordis root 运行已发布的 `dsh-mcp-client`，`tools.register` 通过窄 adapter 委托给精确 agent scope。这样 `activeServerNames` 保持逐私有 root 隔离，同名 server 可跨 session 并存，模型可见工具名仍是稳定的 `mcp__<server>__<tool>`；
+- 初始连接和工具发现采用 strict startup，任一 server 失败会销毁整个私有 host 并回滚先前 server。Load/resume 不持久化、不继承历史进程或认证配置，只使用当前请求；
+- 取消、session close、连接 teardown 与创建中断等待工具调用、transport、重连 timer、工具注册和 stdio 子进程静止。MCP 工具仍通过 Harness registry 的展示函数进入通用 ACP tool card 投影。
 
 ## 后续阶段
 
@@ -170,3 +178,11 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 2. 同名 command/skill 由 command 胜出；未知名称明确报错，不会成为普通 prompt。
 3. skill 注册、注销和 provider invalidation 会刷新对应 session 的 ACP 目录；不完整观察不清空最后一次稳定目录。
 4. 显式 skill 解析可取消，两个 session 的 scoped skill 目录与调用互不影响。
+
+## 第六阶段验收
+
+1. 真实 stdio 与 HTTP MCP 完成配置映射、启动、工具发现、调用、通用结果投影和关闭；初始化不公布 SSE 或 ACP transport。
+2. 两个 session 可同时安装同名 server，工具注册、执行结果、失败、取消与关闭互不影响，恢复后的模型可见名称保持稳定。
+3. new/load/resume 的任一 startup 或响应组装失败都会回滚所有已启动 server；resume 移除、更换或失败时不复用旧连接。
+4. prompt 取消、session close、连接断开和创建中断均不产生迟到工具更新，并在返回前确认 transport、timer、注册和子进程完全静止。
+5. Packed install 在 Harness checkout 外解析 MCP runtime closure 并通过真实 launcher ACP 会话。

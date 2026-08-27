@@ -219,8 +219,8 @@ describe('interactive ACP persisted sessions', () => {
     await expect(harness.client.resumeSession({
       sessionId,
       cwd,
-      mcpServers: [{ name: 'test', command: 'test', args: [], env: [] }],
-    })).rejects.toThrow(/mcpServers/)
+      mcpServers: [{ type: 'acp', name: 'test', serverId: 'test' }],
+    })).rejects.toThrow(/ACP transport is not supported/)
   })
 
   it('closes an in-flight turn, settles it as cancelled, and releases the agent', async () => {

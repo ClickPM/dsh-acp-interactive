@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -49,7 +49,16 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
-async function mockToolServer(): Promise<{ server: Server; baseURL: string; requests: unknown[] }> {
+async function mockToolServer(options: {
+  toolName?: string
+  toolArguments?: string
+  callId?: string
+  completion?: string
+} = {}): Promise<{ server: Server; baseURL: string; requests: unknown[] }> {
+  const toolName = options.toolName ?? 'glob'
+  const toolArguments = options.toolArguments ?? '{"pattern":"stage-b-marker.ts"}'
+  const callId = options.callId ?? 'stage-b-glob'
+  const completion = options.completion ?? 'filesystem search complete'
   const requests: unknown[] = []
   const server = createServer((request, response) => {
     const chunks: Buffer[] = []
@@ -59,13 +68,13 @@ async function mockToolServer(): Promise<{ server: Server; baseURL: string; requ
       response.writeHead(200, { 'content-type': 'text/event-stream' })
       const events = requests.length === 1
         ? [
-            'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"stage-b-glob","type":"function","function":{"name":"glob","arguments":"{\\"pattern\\":\\"stage-b-marker.ts\\"}"}}]},"index":0,"finish_reason":null}]}',
+            `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: callId, type: 'function', function: { name: toolName, arguments: toolArguments } }] }, index: 0, finish_reason: null }] })}`,
             'data: {"choices":[{"delta":{},"index":0,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
             'data: [DONE]',
             '',
           ]
         : [
-            'data: {"choices":[{"delta":{"role":"assistant","content":"filesystem search complete"},"index":0,"finish_reason":null}]}',
+            `data: ${JSON.stringify({ choices: [{ delta: { role: 'assistant', content: completion }, index: 0, finish_reason: null }] })}`,
             'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2}}',
             'data: [DONE]',
             '',
@@ -228,5 +237,93 @@ it('executes a discovered human command and a selected model tool through real A
     child.kill('SIGTERM')
     await new Promise<void>(resolve => child.once('close', () => resolve()))
     await new Promise<void>((resolve, reject) => mock.server.close(error => error === undefined ? resolve() : reject(error)))
+  }
+})
+
+it('runs a session-scoped stdio MCP tool through the built launcher', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-launcher-mcp-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  await mkdir(home)
+  const mock = await mockToolServer({
+    toolName: 'mcp__launcher__echo',
+    toolArguments: '{"text":"hello"}',
+    callId: 'launcher-mcp-echo',
+    completion: 'MCP complete',
+  })
+  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  LAUNCHER_MCP_KEY: test-key\n')
+  await writeFile(join(home, 'settings.yaml'), [
+    'llm-pi-ai:',
+    '  providers:',
+    '    launcher-mcp:',
+    '      displayName: Launcher MCP',
+    '      api: openai-completions',
+    '      apiKeyEnv: LAUNCHER_MCP_KEY',
+    `      baseURL: ${mock.baseURL}`,
+    '      models:',
+    '        - id: probe-model',
+    '          name: Probe Model',
+    '',
+  ].join('\n'))
+  const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_PERMISSION_MODE: 'danger-full-access',
+      LAUNCHER_MCP_KEY: 'test-key',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  const stderr: string[] = []
+  const updates: SessionNotification['update'][] = []
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => stderr.push(String(chunk)))
+  const client = new ClientSideConnection((_agent: Agent): Client => ({
+    sessionUpdate: async update => { updates.push(update.update) },
+    requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  }), ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+  ))
+  try {
+    const initialized = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    expect(initialized.agentCapabilities?.mcpCapabilities).toEqual({ http: true })
+    const session = await client.newSession({
+      cwd: root,
+      mcpServers: [{
+        name: 'launcher',
+        command: process.execPath,
+        args: [resolve('tests/fixtures/mcp-server.mjs')],
+        env: [{ name: 'MCP_SESSION_MARKER', value: 'launcher' }],
+      }],
+    })
+    await client.setSessionConfigOption({
+      sessionId: session.sessionId,
+      configId: 'model',
+      value: 'launcher-mcp:probe-model',
+    })
+    await client.prompt({
+      sessionId: session.sessionId,
+      prompt: [{ type: 'text', text: 'Use the session MCP echo tool.' }],
+    })
+    expect(mock.requests).toHaveLength(2)
+    expect(updates).toContainEqual(expect.objectContaining({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'launcher-mcp-echo',
+    }))
+    expect(updates).toContainEqual(expect.objectContaining({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'launcher-mcp-echo',
+      status: 'completed',
+      content: [{ type: 'content', content: { type: 'text', text: 'launcher:hello' } }],
+    }))
+    await client.closeSession({ sessionId: session.sessionId })
+  } catch (error: unknown) {
+    throw new Error(`${String(error)}\nstderr:\n${stderr.join('')}`)
+  } finally {
+    child.kill('SIGTERM')
+    await new Promise<void>(resolveClose => child.once('close', () => resolveClose()))
+    await new Promise<void>((resolveClose, reject) => mock.server.close(error => error === undefined ? resolveClose() : reject(error)))
   }
 })

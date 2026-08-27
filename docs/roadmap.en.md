@@ -6,7 +6,7 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `0.7.0` completes the editor-profile and projection closure on top of the stable ACP v1 baseline from `0.6.0`: it adds published local filesystem search, the cooperative timeout policy, auditable admission/defer decisions, read-only official-profile reconciliation, and packed-install runtime-closure verification. Users can access text and reasoning streams, generic tool cards, diffs, approvals, plans, model and reasoning-effort selection, permission presets, images, resource links, structured questions, persistent sessions, human slash commands, user-invocable skills, and `glob`/`grep` in Zed without downloading or modifying the DeepSeek Harness source.
+Version `0.8.0` completes session-scoped MCP on top of the `0.7.0` editor-profile and projection closure. Zed can supply stdio or Streamable HTTP servers in new/load/resume requests; each server is composed through the published Harness MCP client into the exact agent scope, same-name servers coexist across sessions, and cancellation, close, failure, or connection loss waits for complete quiescence. Additional directories remains explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 
@@ -73,6 +73,8 @@ Define a Harness editor profile for the standalone launcher and verify that each
 - multiple sessions, connections, and Zed processes do not share derived state or cancellation signals.
 
 ## Stage C: Session-Scoped MCP
+
+Status: completed in `0.8.0`. See the [Session-Scoped MCP Agent Note](agent-notes/2026-08-27-session-scoped-mcp.md) for the isolation, startup-transaction, and teardown decisions.
 
 ### Objective
 

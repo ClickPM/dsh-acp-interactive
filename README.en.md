@@ -6,6 +6,10 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
+## 0.8.0 behavior release
+
+Version `0.8.0` adds live MCP configuration owned by each individual ACP session. `session/new`, `session/load`, and `session/resume` accept complete stdio and Streamable HTTP server configurations; the bridge starts the published Harness MCP client inside the exact agent scope and waits for complete teardown on cancellation, close, failure, or connection loss. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
+
 ## Installation
 
 Before an npm release, install globally from GitHub and pin an audited commit:
@@ -58,11 +62,13 @@ The plugin implements `initialize`, `session/new`, `session/prompt`, `session/ca
 
 `session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, skill discovery, model, or command work, waits for output and continuable descendants to settle, and then disposes the exact owned agent.
 
+MCP configuration is live, complete, and session-scoped. Stdio commands are passed directly as executable plus argv without shell interpolation; explicit env values and HTTP headers are never persisted in the session log or added to model context. Stable ACP v1 stdio and HTTP transports are supported, while SSE, ACP-proxied MCP, and unknown variants fail explicitly. Initial connection or tool-discovery failure fails the whole create/restore transaction and rolls back every server already started. Load and resume use only the current request's complete configuration, so an omitted, removed, changed, or failed server never inherits an older connection. Deterministic `mcp__<server>__<tool>` names remain stable across restoration, while private per-session Cordis roots permit two sessions to use the same server name without sharing tools.
+
 The ACP command catalog merges the exact agent's `ctx.commands` view with the `userInvocable` skills discovered for its cwd and scope. A real command wins a same-name collision. `commands/change` and `skills/change` trigger full per-session replacement updates; incomplete or failed skill observations retain the last complete skill entries, and a complete empty result removes them. A leading `/<skill-name>` that still resolves to a user-invocable definition enters the ordinary user-message path, where `@deepseek-ai/dsh-tool-skill` performs the standard logged `agent/pre-step` injection. Unknown slash names remain unknown commands, and model-only skills are neither advertised nor accepted as explicit ACP skill invocations.
 
 The catalog does not declare domain commands itself. The bundled editor profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback` with their corresponding domains/providers, while discovery still comes only from actual `ctx.commands.register()` calls. This bridge executes registered commands and does not treat model tools as slash commands.
 
-Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, MCP servers, and additional directories are rejected explicitly; the independent `dsh-additional-directories` DSH plugin project owns the Additional directories domain capability. Direct slash commands remain text-only.
+Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, and additional directories are rejected explicitly; the independent `dsh-additional-directories` DSH plugin project owns the Additional directories domain capability. Direct slash commands remain text-only.
 
 When `ctx.planMode` is composed, new, loaded, and resumed sessions advertise `default` and `plan` modes. `session/set_mode` delegates to that service, and committed `plan/mode` events publish `current_mode_update`; the transport keeps no separate mode state.
 
@@ -163,7 +169,7 @@ Changing provider or model starts using that route's cache identity on the next 
 - `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
 - Audio and embedded-resource prompt blocks fail instead of degrading silently. Tool-result image cards remain text-only even though prompt and message-history images are supported.
 - Session cost is sent only after a Harness backend supplies a reliable cumulative amount and currency; the bridge does not estimate cost from token prices.
-- MCP servers are deferred. Additional directories is outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
+- MCP supports stable-v1 stdio and Streamable HTTP configuration only; legacy SSE and ACP-proxied transports are rejected. Additional directories remains outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
 - Terminal output is delivered at tool completion rather than incrementally.
 
 ## Development

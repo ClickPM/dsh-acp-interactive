@@ -6,6 +6,10 @@
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
+## 0.8.0 行为版本
+
+`0.8.0` 增加逐 ACP session 在线配置的 MCP。`session/new`、`session/load` 和 `session/resume` 接受完整的 stdio 与 Streamable HTTP server 配置；bridge 在精确 agent scope 中启动已发布的 Harness MCP client，并在取消、关闭、失败或连接断开时等待完整 teardown。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
+
 ## 安装
 
 发布到 npm 前，可以直接从 GitHub 全局安装并锁定到已审核的 commit：
@@ -58,11 +62,13 @@ GitHub 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interac
 
 `session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，再释放精确归属的 agent。
 
+MCP 配置是在线、完整且逐 session 归属的。Stdio command 直接以 executable 加 argv 传递，不经过 shell 拼接；显式 env 和 HTTP headers 不会持久化到 session log，也不会进入模型上下文。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
+
 ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 cwd 与 scope 发现的 `userInvocable` skill。真实命令与同名 skill 冲突时由命令胜出。`commands/change` 和 `skills/change` 会触发按 session 的完整替换更新；skill 观察不完整或失败时保留上一次完整条目，完整空结果会删除旧条目。以 `/<skill-name>` 开头的输入若仍能解析为用户可调用定义，就进入普通用户消息路径，由 `@deepseek-ai/dsh-tool-skill` 完成标准、已落账的 `agent/pre-step` 注入。未知斜杠名称仍是未知命令；仅限模型的 skill 既不公布，也不接受为 ACP 显式 skill 调用。
 
 命令目录本身不声明领域命令；包内 editor profile 挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback` 及其对应 domain/provider，目录仍只从实际的 `ctx.commands.register()` 动态发现。该 bridge 只执行已注册的 command，不把模型工具误当作斜杠命令。
 
-当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。组合 attachment store 后，初始化会声明图片输入；每张图片都会针对所选模型 route 完成校验和持久化后才排入消息，因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource、MCP server 和 additional directory 会被明确拒绝；Additional directories 的领域能力由独立的 `dsh-additional-directories` DSH 插件项目负责。直接斜杠命令仍只接受文字。
+当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。组合 attachment store 后，初始化会声明图片输入；每张图片都会针对所选模型 route 完成校验和持久化后才排入消息，因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource 和 additional directory 会被明确拒绝；Additional directories 的领域能力由独立的 `dsh-additional-directories` DSH 插件项目负责。直接斜杠命令仍只接受文字。
 
 组合 `ctx.planMode` 后，新建、加载和恢复的 session 会公布 `default` 与 `plan` mode。`session/set_mode` 委托该服务处理，已提交的 `plan/mode` 事件发布 `current_mode_update`；transport 不保留平行的 mode 状态。
 
@@ -163,7 +169,7 @@ Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改
 - `session/list` 当前返回一个完整页面且省略 `updatedAt`；稳定的元数据 cursor 与低成本最后活动时间观察应由 session-query 能力提供。
 - 音频和 embedded-resource prompt block 会失败，不会静默降级。Prompt 与消息历史已经支持图片，但工具结果图片卡片仍只投影文字。
 - Session cost 只在 Harness 后端提供可靠的累计金额和币种后才会发送；当前不会按 token 价格猜测成本。
-- MCP server 延后实现；Additional directories 不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
+- MCP 仅支持稳定 v1 的 stdio 与 Streamable HTTP 配置，legacy SSE 和 ACP 代理 transport 会被拒绝；Additional directories 仍不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
 - Terminal 输出在工具完成时发送，尚未增量推送。
 
 ## 开发

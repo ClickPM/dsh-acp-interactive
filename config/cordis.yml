@@ -128,6 +128,9 @@
     # editor, where the complete formatted result remains available via spill
     # when a deployment composes that optional provider.
     sampleOverCapGlobResults: false
+# MCP servers are not static profile plugins. The ACP bridge composes the
+# published dsh-mcp-client dynamically inside each exact agent/session scope
+# from session/new, session/load, or session/resume request configuration.
 - id: acp-interactive
   name: '../lib/index.js'
   config:

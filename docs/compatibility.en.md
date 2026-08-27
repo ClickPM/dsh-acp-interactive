@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-This matrix applies to `dsh-acp-interactive 0.7.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
+This matrix applies to `dsh-acp-interactive 0.8.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
 
 | Zed version | Status | Capability scope |
 | --- | --- | --- |
@@ -13,7 +13,8 @@ This matrix applies to `dsh-acp-interactive 0.7.0`, stable ACP v1, and `@agentcl
 
 ## Verification scope
 
-- Initialization advertises only composed load/list/resume/close and prompt-modality capabilities. Delete, MCP, and additional directories remain unadvertised or explicitly rejected.
+- Initialization advertises composed load/list/resume/close, prompt modalities, and the MCP HTTP capability; stdio MCP is part of the stable-v1 baseline. SSE, ACP transport, delete, and additional directories remain unadvertised or explicitly rejected.
+- Real MCP tests cover stdio/HTTP mapping, tool discovery and invocation, same-name cross-session isolation, new/load/resume, cancellation, failure rollback, connection teardown, and child-process exit.
 - SDK schema-conformance tests cover message IDs, `usage_update`/cost fields, `model_config`, boolean set requests, the stable elicitation extensible union, and `$/cancel_request`.
 - Request-cancellation tests cancel one long prompt over a real NDJSON connection, prove that another session is unaffected, and then reuse both sessions.
 - The current composition has no real boolean domain option, so it displays no invented toggle even when Zed advertises support. Cost is likewise sent only when Harness supplies a trustworthy cumulative amount.

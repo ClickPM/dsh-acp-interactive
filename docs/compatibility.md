@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-本矩阵对应 `dsh-acp-interactive 0.7.0`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
+本矩阵对应 `dsh-acp-interactive 0.8.0`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
 
 | Zed 版本 | 状态 | 能力范围 |
 | --- | --- | --- |
@@ -13,7 +13,8 @@
 
 ## 验证范围
 
-- 初始化只公布已经组合的 `loadSession`、list/resume/close、prompt 模态等能力；未实现的 delete、MCP 和 additional directories 不公布或明确拒绝。
+- 初始化公布已组合的 `loadSession`、list/resume/close、prompt 模态和 MCP HTTP capability；stdio MCP 是稳定 v1 基线。SSE、ACP transport、delete 和 additional directories 不公布或明确拒绝。
+- 真实 MCP 测试覆盖 stdio/HTTP 映射、工具发现与调用、同名跨 session 隔离、new/load/resume、取消、失败回滚、连接 teardown 和子进程退出。
 - SDK schema conformance 测试覆盖 message ID、`usage_update`/cost 字段、`model_config`、boolean set 请求、稳定 elicitation extensible union 和 `$/cancel_request`。
 - request cancellation 测试通过真实 NDJSON 连接取消一个长 prompt，验证另一个 session 不受影响，两个 session 随后都可继续使用。
 - 当前没有真实 boolean 领域配置，因此即使 Zed 声明支持也不会显示虚构开关。cost 同样只在 Harness 提供可信累计金额时发送。

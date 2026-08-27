@@ -67,7 +67,7 @@ describe('interactive ACP bridge edges', () => {
     const response = await harness.client.initialize({ protocolVersion: 0, clientCapabilities: {} })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.7.0' },
+      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.8.0' },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})
@@ -90,8 +90,9 @@ describe('interactive ACP bridge edges', () => {
       cwd: process.cwd(), mcpServers: [], additionalDirectories: [process.cwd()],
     })).rejects.toThrow(/additionalDirectories/)
     await expect(harness.client.newSession({
-      cwd: process.cwd(), mcpServers: [{ name: 'x', command: 'node', args: [], env: [] }],
-    })).rejects.toThrow(/mcpServers/)
+      cwd: process.cwd(),
+      mcpServers: [{ type: 'sse', name: 'x', url: 'https://example.test/mcp', headers: [] }],
+    })).rejects.toThrow(/SSE transport is not supported/)
     await expect(harness.client.newSession({ cwd: process.cwd(), mcpServers: [], additionalDirectories: [] }))
       .resolves.toHaveProperty('sessionId')
     await expect(harness.client.prompt({ sessionId: 'missing', prompt: [{ type: 'text', text: 'go' }] }))

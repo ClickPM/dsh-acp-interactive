@@ -30,6 +30,7 @@ import {
   type ListSessionsResponse,
   type LoadSessionRequest,
   type LoadSessionResponse,
+  type McpServer,
   type NewSessionRequest,
   type NewSessionResponse,
   type PromptRequest,
@@ -92,6 +93,12 @@ import {
   ToolPresenter,
   type TerminalRendering,
 } from './presentation.js'
+import {
+  installSessionMcp,
+  mapMcpServers,
+  McpConfigError,
+  type SessionMcpHandle,
+} from './mcp.js'
 
 export const name = 'acp-interactive'
 /** Interactive UI registries; concrete model, skill, and tool providers remain composition choices. */
@@ -162,6 +169,7 @@ interface SessionRecord {
   mode: string | undefined
   skillCommands: AvailableCommand[]
   commandCatalogController: AbortController | undefined
+  mcp: SessionMcpHandle
 }
 
 interface StartOperation {
@@ -207,6 +215,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const startingSessions = new Map<SessionId, StartOperation>()
   const pendingCommandSnapshots = new Map<SessionId, SessionRecord>()
   const selections = new WeakMap<Agent, ModelSelectionRef>()
+  const sessionMcp = new WeakMap<Agent, SessionMcpHandle>()
   let closed = false
   let terminalOutputEnabled = false
   let imagePromptEnabled = false
@@ -346,6 +355,27 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     selections.set(agent, selection)
   }
 
+  const installSessionSetup = (
+    mcpConfigs: ReturnType<typeof mapMcpServers>,
+    signal: AbortSignal,
+  ) => async (agentCtx: Context): Promise<void> => {
+    installSelection(agentCtx)
+    const agent = agentCtx.agent
+    /* v8 ignore next -- AgentRegistry setup always receives the new agent's scoped context. */
+    if (agent === undefined) throw new Error('acp-interactive: agent setup has no scoped agent')
+    const mcp = await installSessionMcp(agentCtx, mcpConfigs, signal)
+    sessionMcp.set(agent, mcp)
+  }
+
+  const validateMcpServers = (servers: readonly McpServer[], cwd: string): ReturnType<typeof mapMcpServers> => {
+    try {
+      return mapMcpServers(servers, cwd)
+    } catch (error: unknown) {
+      // mapMcpServers owns this validation boundary and throws only McpConfigError.
+      throw invalidParams((error as McpConfigError).message)
+    }
+  }
+
   const makeRecord = (handle: AgentHandle): SessionRecord => ({
     agent: handle.agent,
     dispose: () => handle.dispose(),
@@ -365,6 +395,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     mode: undefined,
     skillCommands: [],
     commandCatalogController: undefined,
+    mcp: sessionMcp.get(handle.agent) as SessionMcpHandle,
   })
 
   const configOptions = async (record: SessionRecord): Promise<SessionConfigOption[]> => {
@@ -444,7 +475,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       cancelRecord(record, new Error('ACP session closed'))
       await awaitRecordIdle(record)
       await drainDescendants([record.agent])
-      await record.dispose()
+      await disposeRecord(record)
     })().finally(() => {
       /* v8 ignore next -- the exact record stays mapped until this owner finishes closing it. */
       if (sessions.get(sessionId) === record) sessions.delete(sessionId)
@@ -462,6 +493,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     assertOpen()
     signal.throwIfAborted()
     validateRestoredSessionParams(params)
+    const mcpConfigs = validateMcpServers(params.mcpServers ?? [], params.cwd)
     const sessionId = SessionId(params.sessionId)
     if (sessions.has(sessionId) || startingSessions.has(sessionId)) {
       throw invalidParams(`session is already active in this ACP connection: ${sessionId}`)
@@ -492,7 +524,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         resumeSessionId: sessionId,
         agentOptions: agentOptions(config),
         signal: operationSignal,
-        setup: installSelection,
+        setup: installSessionSetup(mcpConfigs, operationSignal),
       })
       if (closed || operationSignal.aborted) {
         await handle.dispose()
@@ -679,10 +711,11 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.7.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '0.8.0' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
+            mcpCapabilities: { http: true },
             sessionCapabilities: {
               list: {},
               resume: {},
@@ -700,6 +733,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       async newSession(params: NewSessionRequest, signal: AbortSignal): Promise<NewSessionResponse> {
         assertOpen()
         validateSessionParams(params)
+        const mcpConfigs = validateMcpServers(params.mcpServers, params.cwd)
         const sessionId = SessionId(randomUUID())
         const settled = Promise.withResolvers<void>()
         const start: StartOperation = {
@@ -710,13 +744,19 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         startingSessions.set(sessionId, start)
         try {
           const operationSignal = AbortSignal.any([start.controller.signal, signal])
-          const handle = await agents.create({
-            sessionId,
-            meta: { cwd: params.cwd },
-            agentOptions: agentOptions(config),
-            signal: operationSignal,
-            setup: installSelection,
-          })
+          let handle: AgentHandle
+          try {
+            handle = await agents.create({
+              sessionId,
+              meta: { cwd: params.cwd },
+              agentOptions: agentOptions(config),
+              signal: operationSignal,
+              setup: installSessionSetup(mcpConfigs, operationSignal),
+            })
+          } catch (error: unknown) {
+            signal.throwIfAborted()
+            throw internalError(`session creation failed: ${errorChain(error)}`)
+          }
           /* v8 ignore next 4 -- a real stdio close can race the asynchronous agent factory. */
           if (closed || operationSignal.aborted) {
             await handle.dispose()
@@ -726,11 +766,16 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           const record = makeRecord(handle)
           sessions.set(sessionId, record)
           pendingCommandSnapshots.set(sessionId, record)
-          const modes = modeState(record)
-          return {
-            sessionId,
-            configOptions: await serializeConfig(record, () => configOptions(record)),
-            ...modes === undefined ? {} : { modes },
+          try {
+            const modes = modeState(record)
+            return {
+              sessionId,
+              configOptions: await serializeConfig(record, () => configOptions(record)),
+              ...modes === undefined ? {} : { modes },
+            }
+          } catch (error: unknown) {
+            await closeRecord(record)
+            throw internalError(`session creation failed: ${errorChain(error)}`)
           }
         } finally {
           /* v8 ignore next -- this exact operation owns the map entry until its finally block. */
@@ -788,11 +833,16 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
       async resumeSession(params: ResumeSessionRequest, signal: AbortSignal): Promise<ResumeSessionResponse> {
         const { record } = await resumeRecord(params, false, signal)
-        const initialConfig = serializeConfig(record, () => configOptions(record))
-        await refreshCommands(record)
-        const [options] = await Promise.all([initialConfig, record.outputTail])
-        const modes = modeState(record)
-        return { configOptions: options, ...modes === undefined ? {} : { modes } }
+        try {
+          const initialConfig = serializeConfig(record, () => configOptions(record))
+          await refreshCommands(record)
+          const [options] = await Promise.all([initialConfig, record.outputTail])
+          const modes = modeState(record)
+          return { configOptions: options, ...modes === undefined ? {} : { modes } }
+        } catch (error: unknown) {
+          await closeRecord(record)
+          throw internalError(`session resume failed: ${errorChain(error)}`)
+        }
       },
 
       async closeSession(params: CloseSessionRequest, signal: AbortSignal): Promise<CloseSessionResponse> {
@@ -984,6 +1034,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           }
         } catch (error: unknown) {
           if (admission.cancelRequested || admission.controller.signal.aborted) {
+            await record.mcp.dispose()
             return { stopReason: 'cancelled' }
           }
           /* v8 ignore next -- admitPrompt contains non-abort failures as InteractivePromptError. */
@@ -1005,6 +1056,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           }
           record.inflight = inflight
           const response = await runCommand(record, commandText, inflight)
+          if (response.stopReason === 'cancelled') await record.mcp.dispose()
           notifyConfigOptions(record)
           return response
         }
@@ -1033,20 +1085,24 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           throw internalError(`prompt was not queued: ${renderThrown(error)}`)
         }
         settleAfterQuiescence(record, inflight)
-        return { stopReason: await completion.promise }
+        const stopReason = await completion.promise
+        if (stopReason === 'cancelled') await record.mcp.dispose()
+        return { stopReason }
         } finally {
           signal.removeEventListener('abort', requestAborted)
         }
       },
 
-      cancel(params: CancelNotification): Promise<void> {
+      async cancel(params: CancelNotification): Promise<void> {
         const record = sessions.get(SessionId(params.sessionId))
-        if (record === undefined) return Promise.resolve()
+        if (record === undefined) return
         const inflight = record.inflight
         if (inflight?.kind === 'admission' || inflight?.kind === 'command') {
           inflight.cancelRequested = true
           inflight.controller.abort(new Error('ACP command cancelled'))
-          return Promise.resolve()
+          await inflight.done
+          await record.mcp.dispose()
+          return
         }
         if (inflight?.kind === 'agent') {
           inflight.cancelRequested = true
@@ -1055,7 +1111,9 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         } else {
           record.agent.cancel({ kind: 'user' })
         }
-        return Promise.resolve()
+        await record.agent.whenIdle()
+        await record.outputTail
+        await record.mcp.dispose()
       },
     }
   }
@@ -1111,7 +1169,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         ...batch.map(record => awaitRecordIdle(record)),
       ])
       await drainDescendants(batch.map(record => record.agent))
-      const results = await Promise.allSettled(batch.map(record => record.dispose()))
+      const results = await Promise.allSettled(batch.map(disposeRecord))
       const failures = results.flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
       if (failures.length > 0) {
         throw new AggregateError(failures, failures.map(failure => errorChain(failure)).join('; '))
@@ -1420,7 +1478,6 @@ function validateSessionParams(params: NewSessionRequest): void {
   if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
     throw invalidParams('additionalDirectories is not supported')
   }
-  if (params.mcpServers.length > 0) throw invalidParams('mcpServers is not supported')
 }
 
 function validateRestoredSessionParams(params: LoadSessionRequest | ResumeSessionRequest): void {
@@ -1428,7 +1485,12 @@ function validateRestoredSessionParams(params: LoadSessionRequest | ResumeSessio
   if (params.additionalDirectories !== undefined && params.additionalDirectories.length > 0) {
     throw invalidParams('additionalDirectories is not supported')
   }
-  if (params.mcpServers !== undefined && params.mcpServers.length > 0) {
-    throw invalidParams('mcpServers is not supported')
-  }
+}
+
+/** Dispose MCP and agent ownership even when either teardown reports failure. */
+async function disposeRecord(record: SessionRecord): Promise<void> {
+  const mcp = await Promise.allSettled([record.mcp.dispose()])
+  const agent = await Promise.allSettled([record.dispose()])
+  const failures = [...mcp, ...agent].flatMap(result => result.status === 'rejected' ? [result.reason as unknown] : [])
+  if (failures.length > 0) throw new AggregateError(failures, failures.map(errorChain).join('; '))
 }

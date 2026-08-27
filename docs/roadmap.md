@@ -6,7 +6,7 @@
 
 ## 当前基线
 
-版本 `0.7.0` 在 `0.6.0` 的稳定 ACP v1 基线上完成 editor profile 与投影闭包：加入已发布的本地 filesystem search、cooperative timeout policy、可审计的准入／暂缓决定、官方 profile 只读对账，以及 packed-install runtime closure 验证。用户无需下载或修改 DeepSeek Harness 源码，即可在 Zed 中使用文本与 reasoning 流、通用工具卡片、diff、审批、计划、模型与 reasoning effort 选择、权限 preset、图片、resource link、结构化提问、持久 session、人类斜杠命令、user-invocable skill 和 `glob`／`grep`。
+版本 `0.8.0` 在 `0.7.0` editor profile 与投影闭包之上完成逐 session MCP：Zed 可以在 new/load/resume 请求中提供 stdio 或 Streamable HTTP server，每个 server 通过已发布 Harness MCP client 组合到精确 agent scope，同名 server 可跨 session 并存，并在取消、关闭、失败或连接断开时完整静止。Additional directories 仍明确不支持。
 
 当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
 
@@ -73,6 +73,8 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 - 多 session、多连接和多 Zed 进程之间不共享派生状态或取消信号。
 
 ## 阶段 C：Session-scoped MCP
+
+状态：已在 `0.8.0` 完成。隔离、启动事务与 teardown 决定见 [Session-scoped MCP Agent Note](agent-notes/2026-08-27-session-scoped-mcp.md)。
 
 ### 目标
 
