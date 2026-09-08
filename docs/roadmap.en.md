@@ -6,9 +6,23 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, successful-close durability, concurrent list/load/resume/close isolation, and real two-process JSONL recovery. The standalone launcher also composes Harness's first-prompt LLM title provider, which publishes a durable asynchronous title after the immediate fallback. Stage E is `Deferred`. Additional directories remains explicitly unsupported.
+Version `1.0.1` retains the self-contained ACP v1 stable baseline established
+by `1.0.0` and adds Registry terminal authentication. Stages A, B, C, and D1
+are complete, with coverage for session-scoped MCP, successful-close
+durability, concurrent list/load/resume/close isolation, and real two-process
+JSONL recovery. Stage E is `Deferred`. Additional directories remains
+explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
+
+Registry distribution readiness adds conditionally advertised ACP terminal
+authentication. Supporting clients can launch an isolated `--setup` process to
+configure the `DEEPSEEK_API_KEY` consumed by the official DeepSeek adapter.
+This repository adapts the terminal interaction, while credential precedence,
+persistence, locking, and file permissions remain delegated to the published
+Harness credentials provider. The normal ACP process never reads, copies, or
+prints the key. See the
+[Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md).
 
 ## Capability Integration Boundary
 

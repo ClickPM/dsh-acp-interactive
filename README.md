@@ -6,21 +6,44 @@
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
-## 1.0.0 稳定版本
+## 1.0.1
 
-`1.0.0` 将当前自包含 ACP v1 集成确立为稳定基线：阶段 A、B、C 与 D1 已完成，逐 ACP session MCP、成功 close 的持久化边界和真实双进程恢复均有覆盖。阶段 E「丰富内容与实时 UI」标记为 `Deferred`，不在本版本新增未闭环的协议或 Harness 能力。Additional directories 仍不支持，任何非空 `additionalDirectories` 请求继续被明确拒绝。
+`1.0.1` 保留 `1.0.0` 的自包含 ACP v1 稳定基线，并增加 ACP Registry
+所需的条件式 terminal authentication。支持该能力的 Zed/ACP 客户端可以通过
+独立的 `--setup` 进程配置 DeepSeek 官方 API key；普通 ACP transport 不接触
+或输出密钥。逐 ACP session MCP、成功 close 的持久化边界和真实双进程恢复等
+现有能力保持不变。
 
 ## 安装
 
 从 GitHub 全局安装稳定版本并锁定到发布 tag：
 
 ```sh
-npm install --global github:cking000bigdemon/dsh-acp-interactive#v1.0.0
+npm install --global github:ClickPM/dsh-acp-interactive#v1.0.1
 ```
 
-需要审计固定时，也可以将 `v1.0.0` 替换为对应的完整 commit SHA。
+需要审计固定时，也可以将 `v1.0.1` 替换为对应的完整 commit SHA。
 
 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
+
+首次使用 DeepSeek 官方 API 前，可在终端运行：
+
+```sh
+dsh-acp-interactive --setup
+```
+
+该交互不会回显输入的 API key，并通过 Harness credentials 服务把
+`DEEPSEEK_API_KEY` 原子写入 `$DSH_HOME/.credentials.yaml`；Provider
+负责文件锁、并发更新及 POSIX 下的 `0700` 目录／`0600` 文件权限。已有
+file credential 时留空会保留原值；若启动环境已经提供
+`DEEPSEEK_API_KEY`，环境值按 Harness 优先级生效，命令不会写入一个被遮蔽的
+file credential。此流程只保存凭据，不会发送网络请求；第一次模型请求仍负责
+验证 key 是否有效。
+
+支持 ACP terminal authentication 的客户端会在初始化时看到
+`Configure DeepSeek API key` 方法，并用同一个 `--setup` 流程打开交互式终端。
+不声明 terminal-auth 能力的客户端不会收到该方法。terminal setup 是独立进程，
+不会启动 ACP transport；正常服务模式仍保留 stdout 仅传输 JSON-RPC 的约束。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 

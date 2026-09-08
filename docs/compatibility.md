@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-本矩阵对应 `dsh-acp-interactive 1.0.0`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
+本矩阵对应 `dsh-acp-interactive 1.0.1`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
 
 | Zed 版本 | 状态 | 能力范围 |
 | --- | --- | --- |

@@ -6,9 +6,19 @@
 
 ## 当前基线
 
-版本 `1.0.0` 将当前自包含 ACP v1 集成确立为稳定基线：阶段 A、B、C 与 D1 已完成，逐 session MCP、成功 close 的 durability boundary、并发 list/load/resume/close 隔离，以及真实双进程 JSONL 恢复均有覆盖。独立 launcher 还组合 Harness 的 first-prompt LLM 标题 provider，在即时回退后异步发布持久化标题。阶段 E 标记为 `Deferred`。Additional directories 仍明确不支持。
+版本 `1.0.1` 保留 `1.0.0` 确立的自包含 ACP v1 稳定基线，并增加
+Registry terminal authentication。阶段 A、B、C 与 D1 已完成，逐 session
+MCP、成功 close 的 durability boundary、并发 list/load/resume/close 隔离，
+以及真实双进程 JSONL 恢复均有覆盖。阶段 E 标记为 `Deferred`。Additional
+directories 仍明确不支持。
 
 当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
+
+Registry 发布准备增加了条件公布的 ACP terminal authentication：
+支持该能力的客户端可启动独立 `--setup` 进程，配置 DeepSeek 官方 adapter
+使用的 `DEEPSEEK_API_KEY`。交互由本仓库适配，凭据优先级、持久化、锁和文件权限
+继续委托已发布的 Harness credentials provider；普通 ACP 进程不读取、复制或输出
+密钥。设计决定见 [Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md)。
 
 ## 能力接入边界
 

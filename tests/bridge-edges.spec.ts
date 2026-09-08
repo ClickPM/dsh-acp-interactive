@@ -62,14 +62,24 @@ describe('interactive ACP bridge edges', () => {
     harness = undefined
   })
 
-  it('negotiates capabilities, no-op authentication, and omitted agent targets', async () => {
+  it('negotiates capabilities, terminal authentication, and omitted agent targets', async () => {
     harness = await makeHarness([])
-    const response = await harness.client.initialize({ protocolVersion: 0, clientCapabilities: {} })
+    const response = await harness.client.initialize({
+      protocolVersion: 0,
+      clientCapabilities: { auth: { terminal: true } },
+    })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.0' },
+      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.1' },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
+    expect(response.authMethods).toEqual([{
+      id: 'deepseek-api-key',
+      name: 'Configure DeepSeek API key',
+      description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
+      type: 'terminal',
+      args: ['--setup'],
+    }])
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})
 
     const blank = await makeHarness([], {})

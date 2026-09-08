@@ -6,21 +6,48 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
-## 1.0.0 stable release
+## 1.0.1
 
-Version `1.0.0` establishes the current self-contained ACP v1 integration as the stable baseline: Stages A, B, C, and D1 are complete, with coverage for session-scoped MCP, the successful-close durability boundary, and real two-process recovery. Stage E, “Rich Content and Real-Time UI,” is `Deferred`; this release does not add protocol or Harness capabilities without a complete lifecycle. Additional directories remains unsupported, and every non-empty `additionalDirectories` request is still rejected explicitly.
+Version `1.0.1` retains the self-contained ACP v1 stable baseline established
+by `1.0.0` and adds the conditionally advertised terminal authentication
+required by the ACP Registry. Supporting Zed/ACP clients can configure an
+official DeepSeek API key through an isolated `--setup` process; the ordinary
+ACP transport never handles or prints the secret. Existing session-scoped MCP,
+durable close, and real two-process recovery behavior remains unchanged.
 
 ## Installation
 
 Install the stable release globally from GitHub and pin the release tag:
 
 ```sh
-npm install --global github:cking000bigdemon/dsh-acp-interactive#v1.0.0
+npm install --global github:ClickPM/dsh-acp-interactive#v1.0.1
 ```
 
-For an audit-fixed installation, replace `v1.0.0` with the corresponding full commit SHA.
+For an audit-fixed installation, replace `v1.0.1` with the corresponding full commit SHA.
 
 Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+
+Before using the official DeepSeek API for the first time, run:
+
+```sh
+dsh-acp-interactive --setup
+```
+
+The prompt does not echo the API key. It delegates an atomic
+`DEEPSEEK_API_KEY` write in `$DSH_HOME/.credentials.yaml` to the Harness
+credentials service, whose provider owns locking, concurrent updates, and the
+POSIX `0700` directory / `0600` file permissions. Leaving the prompt blank
+keeps an existing file credential. When the launching environment already
+supplies `DEEPSEEK_API_KEY`, that value wins by Harness precedence and setup
+does not write a shadowed file credential. Setup only stores the credential;
+it makes no network request, so the first model request still validates the
+key.
+
+Clients that advertise ACP terminal authentication see a
+`Configure DeepSeek API key` method and open the same interactive `--setup`
+flow. Clients without terminal-auth support are not offered that method. The
+terminal setup runs as a separate process and does not start the ACP transport;
+normal server mode continues to reserve stdout for JSON-RPC frames.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 

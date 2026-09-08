@@ -25,7 +25,12 @@ try {
     cwd: repositoryRoot,
     maxBuffer: 10 * 1024 * 1024,
   })
-  const packed = JSON.parse(pack.stdout)
+  // npm 11 can forward prepare/build output ahead of `npm pack --json` even
+  // with --ignore-scripts. Parse from the JSON array instead of assuming the
+  // machine-readable payload is the only stdout content.
+  const jsonStart = pack.stdout.search(/^\s*\[\s*\{/m)
+  if (jsonStart < 0) throw new Error(`npm pack did not emit JSON:\n${pack.stdout}`)
+  const packed = JSON.parse(pack.stdout.slice(jsonStart))
   const archive = join(root, packed[0].filename)
   const installRoot = join(root, 'install')
   const workspace = join(root, 'workspace')
@@ -40,8 +45,14 @@ try {
   const installedRoot = join(installRoot, 'node_modules', 'dsh-acp-interactive')
   const configPath = join(installedRoot, 'config', 'cordis.yml')
   const packages = compositionPackages(await readFile(configPath, 'utf8'))
+  const setupPackages = compositionPackages(await readFile(
+    join(installedRoot, 'config', 'setup.yml'),
+    'utf8',
+  ))
   const requireFromInstall = createRequire(join(installRoot, 'package.json'))
-  for (const name of packages) requireFromInstall.resolve(`${name}/package.json`)
+  for (const name of new Set([...packages, ...setupPackages])) {
+    requireFromInstall.resolve(`${name}/package.json`)
+  }
   for (const name of [
     '@deepseek-ai/dsh-mcp-client',
     '@deepseek-ai/dsh-subprocess',
@@ -69,6 +80,27 @@ try {
     "}",
   ].join('\n'))
 
+  const setupKey = 'sk-packed-setup-probe'
+  const setupResult = await spawnWithInput(
+    process.execPath,
+    [join(installedRoot, 'lib', 'bin.js'), '--setup'],
+    `${setupKey}\n`,
+    {
+      cwd: workspace,
+      env: { ...process.env, DSH_HOME: dshHome, DEEPSEEK_API_KEY: undefined },
+    },
+  )
+  if (setupResult.code !== 0) {
+    throw new Error(`packed terminal setup failed:\n${setupResult.stderr}`)
+  }
+  if (setupResult.stdout !== '' || setupResult.stderr.includes(setupKey)) {
+    throw new Error('packed terminal setup leaked its API key or wrote to stdout')
+  }
+  const credentials = await readFile(join(dshHome, '.credentials.yaml'), 'utf8')
+  if (!credentials.includes(`DEEPSEEK_API_KEY: ${setupKey}`)) {
+    throw new Error('packed terminal setup did not persist DEEPSEEK_API_KEY')
+  }
+
   const updates = []
   const child = spawn(process.execPath, [join(installedRoot, 'lib', 'bin.js')], {
     cwd: workspace,
@@ -90,9 +122,19 @@ try {
     Readable.toWeb(child.stdout),
   ))
   try {
-    const initialized = await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const initialized = await client.initialize({
+      protocolVersion: PROTOCOL_VERSION,
+      clientCapabilities: { auth: { terminal: true } },
+    })
     if (initialized.agentCapabilities?.mcpCapabilities?.http !== true) {
       throw new Error('packed launcher did not advertise MCP HTTP capability')
+    }
+    if (initialized.authMethods?.some(method => (
+      method.id === 'deepseek-api-key'
+      && method.type === 'terminal'
+      && method.args?.includes('--setup')
+    )) !== true) {
+      throw new Error('packed launcher did not advertise DeepSeek terminal authentication')
     }
     const session = await client.newSession({
       cwd: workspace,
@@ -118,7 +160,7 @@ try {
     child.kill('SIGTERM')
     await new Promise(resolveClose => child.once('close', resolveClose))
   }
-  console.error(`Packed-install verification passed: ${packages.length} profile plugins and MCP runtime dependencies resolved; the installed launcher started and stopped a session MCP server.`)
+  console.error(`Packed-install verification passed: ${packages.length} profile plugins and setup/MCP runtime dependencies resolved; terminal auth persisted a credential, and the installed launcher started and stopped a session MCP server.`)
 } finally {
   await rm(root, { recursive: true, force: true })
 }
@@ -129,4 +171,19 @@ async function waitFor(predicate) {
     if (Date.now() >= deadline) throw new Error('timed out waiting for packed launcher update')
     await new Promise(resolveWait => setTimeout(resolveWait, 20))
   }
+}
+
+function spawnWithInput(command, args, input, options) {
+  return new Promise((resolveSpawn, rejectSpawn) => {
+    const child = spawn(command, args, { ...options, stdio: ['pipe', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => { stdout += String(chunk) })
+    child.stderr.on('data', chunk => { stderr += String(chunk) })
+    child.once('error', rejectSpawn)
+    child.once('close', code => resolveSpawn({ code, stdout, stderr }))
+    child.stdin.end(input)
+  })
 }

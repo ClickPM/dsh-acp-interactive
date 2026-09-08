@@ -95,6 +95,34 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
 })
 
+it('stores a DeepSeek API key through the built terminal setup launcher', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-setup-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  await mkdir(home)
+  const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js'), '--setup'], {
+    cwd: root,
+    env: { ...process.env, DSH_HOME: home, DEEPSEEK_API_KEY: undefined },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.setEncoding('utf8')
+  child.stderr.setEncoding('utf8')
+  child.stdout.on('data', chunk => { stdout += String(chunk) })
+  child.stderr.on('data', chunk => { stderr += String(chunk) })
+  child.stdin.end('sk-launcher-test\n')
+  const exitCode = await new Promise<number | null>(resolveExit => child.once('close', resolveExit))
+
+  expect(exitCode, stderr).toBe(0)
+  expect(stdout).toBe('')
+  expect(stderr).not.toContain('sk-launcher-test')
+  expect(await import('node:fs/promises').then(fs => fs.readFile(
+    join(home, '.credentials.yaml'),
+    'utf8',
+  ))).toContain('DEEPSEEK_API_KEY: sk-launcher-test')
+})
+
 it('recovers one JSONL session across concurrent launcher processes without making close destructive', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-acp-multiprocess-'))
   roots.push(root)

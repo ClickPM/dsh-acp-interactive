@@ -727,7 +727,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.0' },
+          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.1' },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
@@ -738,7 +738,15 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
               close: {},
             },
           },
-          authMethods: [],
+          authMethods: params.clientCapabilities?.auth?.terminal === true
+            ? [{
+                id: 'deepseek-api-key',
+                name: 'Configure DeepSeek API key',
+                description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
+                type: 'terminal',
+                args: ['--setup'],
+              }]
+            : [],
         })
       },
 

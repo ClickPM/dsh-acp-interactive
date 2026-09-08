@@ -1,0 +1,5 @@
+# Minimal composition used by ACP terminal authentication. The setup UI calls
+# the credentials seam; the local provider retains ownership of validation,
+# locking, atomic writes, permissions, and environment precedence.
+- id: credentials
+  name: '@deepseek-ai/dsh-credentials-local'
