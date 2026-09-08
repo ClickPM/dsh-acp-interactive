@@ -6,9 +6,10 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `1.0.2` uses `deepseekharness-acp-interactive` as its public npm
-package name and retains the Registry terminal authentication added in
-`1.0.1`. Stages A, B, C, and D1 are complete, with coverage for session-scoped
+Version `1.0.3` uses `deepseekharness-acp-interactive` as its public npm
+package name and makes Registry terminal authentication compatible with both
+the stable ACP field and the Registry validator's legacy `_meta` capability
+flag. Stages A, B, C, and D1 are complete, with coverage for session-scoped
 MCP, successful-close durability, concurrent list/load/resume/close isolation,
 and real two-process JSONL recovery. Stage E is `Deferred`. Additional
 directories remains explicitly unsupported.

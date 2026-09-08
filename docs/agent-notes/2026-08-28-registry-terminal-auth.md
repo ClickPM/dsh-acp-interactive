@@ -3,10 +3,12 @@
 ## Decision
 
 The standalone launcher advertises a `terminal` ACP authentication method only
-when the client declares `clientCapabilities.auth.terminal: true`. The method
-launches the same executable with `--setup`. That invocation boots a minimal
-composition containing only `dsh-credentials-local`, prompts without echoing
-the key, and writes the `DEEPSEEK_API_KEY` reference through
+when the client declares stable `clientCapabilities.auth.terminal: true` or
+the ACP Registry validator's legacy
+`clientCapabilities._meta["terminal-auth"]: true` compatibility flag. The
+method launches the same executable with `--setup`. That invocation boots a
+minimal composition containing only `dsh-credentials-local`, prompts without
+echoing the key, and writes the `DEEPSEEK_API_KEY` reference through
 `ctx.credentials.set()`.
 
 The ordinary launcher composition and transport are not started during setup.
