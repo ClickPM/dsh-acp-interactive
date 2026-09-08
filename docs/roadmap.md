@@ -21,6 +21,8 @@ Registry 发布准备增加了条件公布的 ACP terminal authentication：
 继续委托已发布的 Harness credentials provider；普通 ACP 进程不读取、复制或输出
 密钥。设计决定见 [Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md)。
 
+在恢复新增功能开发前，当前质量优先顺序为 `Q0 → Q1 → Q2 → Q3 → Q4`：来源边界、公开跨平台 CI、固定／最新上游兼容流水线、真实 Zed 验证、发行与 Registry 证据。项目不以其他社区实现的功能表作为路线图输入。原则、验收门和非目标见[上游贴合、公开 CI 与 Zed 验证规范](upstream-alignment.md)。
+
 ## 能力接入边界
 
 本仓库不实现 DeepSeek Harness 的领域能力。Web、文件搜索、LSP、终端、subagent、workflow、spill、tool-result pruning、timeout 和 loop guard 等能力的定义、执行逻辑、策略与领域事件由各自的 Harness 插件维护。本仓库只负责两类工作：一是把适合编辑器场景的已发布 Harness 插件装配进独立 launcher，并保证安装与运行时依赖闭包；二是把这些插件已经提供的请求、事件和生命周期通过 ACP 通用协议面可靠地提供给 Zed。
@@ -162,4 +164,4 @@ Additional directories 的多根目录注册、沙箱策略与跨能力强制执
 
 ## 推荐顺序
 
-当前主动开发顺序为 `A → B → C → D`。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续工作的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 接入逐 session 外部工具生命周期，阶段 D 扩展持久状态；二者都必须在隔离与所有权规则稳定后实施。阶段 E 为 `Deferred`，不属于当前主动发布计划，仅在需求和前置能力成熟后恢复。Additional directories 由独立 DSH 插件项目推进，不属于本顺序。
+功能阶段的依赖顺序仍为 `A → B → C → D`，但当前先执行质量序列 `Q0 → Q1 → Q2 → Q3 → Q4`。阶段 A 固定协议基线，阶段 B 固定 editor profile 的准入、装配和通用投影边界；二者是后续功能的前置。阶段 B 不阻塞 Harness 自身能力演进，也不要求本仓库复刻官方完整 profile。阶段 C 接入逐 session 外部工具生命周期，阶段 D 扩展持久状态；二者都必须在隔离与所有权规则稳定后实施。阶段 E 为 `Deferred`，不属于当前主动发布计划，仅在需求和前置能力成熟后恢复。Additional directories 由独立 DSH 插件项目推进，不属于本顺序。

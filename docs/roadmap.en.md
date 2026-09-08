@@ -25,6 +25,8 @@ Harness credentials provider. The normal ACP process never reads, copies, or
 prints the key. See the
 [Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md).
 
+Before new feature development resumes, the current quality-first order is `Q0 → Q1 → Q2 → Q3 → Q4`: provenance boundaries, public cross-platform CI, pinned/upstream-tip compatibility lanes, real Zed validation, and release/Registry evidence. Feature tables from other community implementations are not roadmap inputs. See [Upstream Alignment, Public CI, and Zed Validation](upstream-alignment.en.md) for the principles, acceptance gates, and non-goals.
+
 ## Capability Integration Boundary
 
 This repository does not implement DeepSeek Harness domain capabilities. Web access, file search, LSP, terminals, subagents, workflows, spill, tool-result pruning, timeouts, loop guards, and their execution semantics, policies, and domain events remain owned by their Harness plugins. This repository owns only two kinds of work: composing published Harness plugins that are suitable for an editor into the standalone launcher with a complete install/runtime dependency closure, and reliably exposing the requests, events, and lifecycle those plugins already provide to Zed through generic ACP protocol surfaces.
@@ -166,4 +168,4 @@ Every stage preserves these rules:
 
 ## Recommended Order
 
-The active development order is `A → B → C → D`. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stage C adds per-session external-tool lifecycle and Stage D expands durable state; both follow stable isolation and ownership rules. Stage E is `Deferred`, outside the active release plan, and resumes only when demand and prerequisites mature. Additional directories proceeds in an independent DSH plugin project and is not part of this sequence.
+The functional dependency order remains `A → B → C → D`, but the project currently completes the quality sequence `Q0 → Q1 → Q2 → Q3 → Q4` first. Stage A fixes the protocol baseline and Stage B fixes the editor profile's admission, composition, and generic-projection boundaries, making both prerequisites for later feature work. Stage B neither blocks independent Harness capability development nor requires this repository to reproduce the complete official profile. Stage C adds per-session external-tool lifecycle and Stage D expands durable state; both follow stable isolation and ownership rules. Stage E is `Deferred`, outside the active release plan, and resumes only when demand and prerequisites mature. Additional directories proceeds in an independent DSH plugin project and is not part of this sequence.
