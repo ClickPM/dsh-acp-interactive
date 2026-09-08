@@ -6,23 +6,23 @@
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
-## 1.0.1
+## 1.0.2
 
-`1.0.1` 保留 `1.0.0` 的自包含 ACP v1 稳定基线，并增加 ACP Registry
-所需的条件式 terminal authentication。支持该能力的 Zed/ACP 客户端可以通过
-独立的 `--setup` 进程配置 DeepSeek 官方 API key；普通 ACP transport 不接触
-或输出密钥。逐 ACP session MCP、成功 close 的持久化边界和真实双进程恢复等
-现有能力保持不变。
+`1.0.2` 以公开 npm 包 `deepseekharness-acp-interactive` 发布，并保留
+`1.0.1` 增加的 ACP Registry terminal authentication。支持该能力的 Zed/ACP
+客户端可以通过独立的 `--setup` 进程配置 DeepSeek 官方 API key；普通 ACP
+transport 不接触或输出密钥。逐 ACP session MCP、成功 close 的持久化边界和
+真实双进程恢复等现有能力保持不变。
 
 ## 安装
 
-从 GitHub 全局安装稳定版本并锁定到发布 tag：
+从 npm 全局安装并锁定版本：
 
 ```sh
-npm install --global github:ClickPM/dsh-acp-interactive#v1.0.1
+npm install --global deepseekharness-acp-interactive@1.0.2
 ```
 
-需要审计固定时，也可以将 `v1.0.1` 替换为对应的完整 commit SHA。
+需要审计源码时，可对照 GitHub 的 `v1.0.2` tag。
 
 安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 

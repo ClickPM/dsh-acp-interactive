@@ -1,6 +1,6 @@
 {
-  "name": "dsh-acp-interactive",
-  "version": "1.0.1",
+  "name": "deepseekharness-acp-interactive",
+  "version": "1.0.2",
   "description": "面向 Zed 等编辑器的 DeepSeek Harness 交互式 ACP 插件。",
   "license": "MIT",
   "repository": {

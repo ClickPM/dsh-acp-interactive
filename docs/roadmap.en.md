@@ -6,12 +6,12 @@ This reference defines the recommended development order for `dsh-acp-interactiv
 
 ## Current Baseline
 
-Version `1.0.1` retains the self-contained ACP v1 stable baseline established
-by `1.0.0` and adds Registry terminal authentication. Stages A, B, C, and D1
-are complete, with coverage for session-scoped MCP, successful-close
-durability, concurrent list/load/resume/close isolation, and real two-process
-JSONL recovery. Stage E is `Deferred`. Additional directories remains
-explicitly unsupported.
+Version `1.0.2` uses `deepseekharness-acp-interactive` as its public npm
+package name and retains the Registry terminal authentication added in
+`1.0.1`. Stages A, B, C, and D1 are complete, with coverage for session-scoped
+MCP, successful-close durability, concurrent list/load/resume/close isolation,
+and real two-process JSONL recovery. Stage E is `Deferred`. Additional
+directories remains explicitly unsupported.
 
 Production uses ACP v1. The plugin advertises an optional protocol capability only when the client declares support and the assembled Harness services implement it completely.
 

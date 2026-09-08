@@ -70,7 +70,7 @@ describe('interactive ACP bridge edges', () => {
     })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.1' },
+      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.2' },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
     expect(response.authMethods).toEqual([{

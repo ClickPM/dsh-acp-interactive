@@ -6,24 +6,24 @@ Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh a
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
-## 1.0.1
+## 1.0.2
 
-Version `1.0.1` retains the self-contained ACP v1 stable baseline established
-by `1.0.0` and adds the conditionally advertised terminal authentication
-required by the ACP Registry. Supporting Zed/ACP clients can configure an
+Version `1.0.2` is distributed as the public npm package
+`deepseekharness-acp-interactive` and retains the ACP Registry terminal
+authentication added in `1.0.1`. Supporting Zed/ACP clients can configure an
 official DeepSeek API key through an isolated `--setup` process; the ordinary
 ACP transport never handles or prints the secret. Existing session-scoped MCP,
 durable close, and real two-process recovery behavior remains unchanged.
 
 ## Installation
 
-Install the stable release globally from GitHub and pin the release tag:
+Install globally from npm and pin the version:
 
 ```sh
-npm install --global github:ClickPM/dsh-acp-interactive#v1.0.1
+npm install --global deepseekharness-acp-interactive@1.0.2
 ```
 
-For an audit-fixed installation, replace `v1.0.1` with the corresponding full commit SHA.
+For source auditing, compare the package with the GitHub `v1.0.2` tag.
 
 Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 

@@ -42,7 +42,7 @@ try {
     maxBuffer: 10 * 1024 * 1024,
   })
 
-  const installedRoot = join(installRoot, 'node_modules', 'dsh-acp-interactive')
+  const installedRoot = join(installRoot, 'node_modules', 'deepseekharness-acp-interactive')
   const configPath = join(installedRoot, 'config', 'cordis.yml')
   const packages = compositionPackages(await readFile(configPath, 'utf8'))
   const setupPackages = compositionPackages(await readFile(

@@ -6,11 +6,11 @@
 
 ## 当前基线
 
-版本 `1.0.1` 保留 `1.0.0` 确立的自包含 ACP v1 稳定基线，并增加
-Registry terminal authentication。阶段 A、B、C 与 D1 已完成，逐 session
-MCP、成功 close 的 durability boundary、并发 list/load/resume/close 隔离，
-以及真实双进程 JSONL 恢复均有覆盖。阶段 E 标记为 `Deferred`。Additional
-directories 仍明确不支持。
+版本 `1.0.2` 以 `deepseekharness-acp-interactive` 作为公开 npm 包名，并保留
+`1.0.1` 增加的 Registry terminal authentication。阶段 A、B、C 与 D1 已完成，
+逐 session MCP、成功 close 的 durability boundary、并发
+list/load/resume/close 隔离，以及真实双进程 JSONL 恢复均有覆盖。阶段 E
+标记为 `Deferred`。Additional directories 仍明确不支持。
 
 当前实现以 ACP v1 为生产协议。任何可选协议能力只在客户端声明支持且插件具备完整后端能力时公布。
 
