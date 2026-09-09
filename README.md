@@ -91,6 +91,8 @@ file credential。此流程只保存凭据，不会发送网络请求；第一�
 
 MCP 配置是在线、完整且逐 session 归属的。Stdio command 直接以 executable 加 argv 传递，不经过 shell 拼接；显式 env 和 HTTP headers 不会持久化到 session log，也不会进入模型上下文。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
 
+个人统一配置可放在客户端侧，但不是本包的运行依赖。例如 Zed 的 `context_servers` 可把每个服务配置为 `agent-config-mcp serve <service-id>`，随后通过标准 ACP `mcpServers` 传入本包；本包仍只消费协议记录，不读取个人目录或识别该命令。独立 Harness WebUI 若使用自己的 agent-config consumer，必须在每个 agent 的私有 Cordis root 中另建连接，而且不能把该 consumer 加入本包的 `config/cordis.yml`。因此 Zed ACP 与 `npx dsh` WebUI 可以共享静态服务定义和凭据引用，但不共享 MCP Client、transport、工具注册表、session ID、取消信号、子进程或重连任务。完整边界见 [Agent Note](docs/agent-notes/2026-09-07-agent-config-integration.md)。
+
 ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 cwd 与 scope 发现的 `userInvocable` skill。真实命令与同名 skill 冲突时由命令胜出。`commands/change` 和 `skills/change` 会触发按 session 的完整替换更新；skill 观察不完整或失败时保留上一次完整条目，完整空结果会删除旧条目。以 `/<skill-name>` 开头的输入若仍能解析为用户可调用定义，就进入普通用户消息路径，由 `@deepseek-ai/dsh-tool-skill` 完成标准、已落账的 `agent/pre-step` 注入。未知斜杠名称仍是未知命令；仅限模型的 skill 既不公布，也不接受为 ACP 显式 skill 调用。
 
 命令目录本身不声明领域命令；包内 editor profile 挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback` 及其对应 domain/provider，目录仍只从实际的 `ctx.commands.register()` 动态发现。该 bridge 只执行已注册的 command，不把模型工具误当作斜杠命令。
