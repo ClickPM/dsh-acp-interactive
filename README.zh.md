@@ -36,6 +36,16 @@ dsh-acp-interactive --setup
 
 每个 ACP 客户端都会看到 `Configure DeepSeek API key` 认证方法：支持 terminal authentication 的客户端（包括 Zed）从中打开同一个 `--setup` 流程，其他客户端则以 agent 类型方法收到同样的说明。详见[在 Zed 中运行](#在-zed-中运行)。
 
+## 在 Zed 中的样子
+
+![Zed agent 面板中运行 DeepSeek Harness Interactive，旁边是编辑器，输入框底部有模型、推理强度和权限选择器](assets/zed-overview.png)
+
+`/` 面板列出从已组合的 Harness 插件中发现的人类命令；权限与推理强度选择器是 ACP session 配置项，分别由 Harness 权限 preset 和所选模型公布的 effort 支撑。
+
+![斜杠命令面板：compact、feedback、goal、permission、plan](assets/zed-commands.png)
+
+![权限 preset 选择器（read-only、workspace-write、danger-full-access）与推理强度选择器（Default、Off、Low、High、Max）](assets/zed-controls.png)
+
 ## 1.0.5
 
 `1.0.5` 始终公布 `deepseek-api-key` 认证方法：客户端声明 terminal authentication 时为 `terminal` 类型，否则为 agent 类型方法，其描述指向 `--setup` 与 `DEEPSEEK_API_KEY`，因此未声明该能力的客户端（例如 JetBrains IDE，其 `initialize` 不带 terminal-auth 标志）看到的是配置说明而不是空列表。`agentInfo` 改为从 `package.json` 读取包版本，`agentInfo.name` 与 ACP Registry id `dsh-acp-interactive` 一致；Registry 条目也改用该 id，并在描述中声明社区维护、非官方的身份。见 [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md)。

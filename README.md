@@ -36,6 +36,16 @@ dsh-acp-interactive --setup
 
 Every ACP client sees a `Configure DeepSeek API key` authentication method: clients with terminal authentication, including Zed, open the same `--setup` flow from it, and other clients get its instructions as an agent-type method. See [Running with Zed](#running-with-zed) for details.
 
+## In Zed
+
+![Zed agent panel running DeepSeek Harness Interactive next to the editor, with the model, reasoning-effort, and permission selectors in the composer](assets/zed-overview.png)
+
+The `/` palette lists the human commands discovered from the composed Harness plugins; the permission and reasoning-effort selectors are ACP session configuration options backed by Harness permission presets and the selected model's advertised efforts.
+
+![Slash command palette showing compact, feedback, goal, permission, and plan](assets/zed-commands.png)
+
+![Permission preset selector (read-only, workspace-write, danger-full-access) and reasoning-effort selector (Default, Off, Low, High, Max)](assets/zed-controls.png)
+
 ## 1.0.5
 
 Version `1.0.5` always advertises the `deepseek-api-key` authentication method: as a `terminal` method when the client declares terminal authentication, and otherwise as an agent-type method whose description points at `--setup` and `DEEPSEEK_API_KEY`, so clients that do not declare the capability (for example JetBrains IDEs, whose `initialize` carries no terminal-auth flag) still see how to configure the key instead of an empty list. `agentInfo` now reports the package version from `package.json` instead of a hardcoded string, and `agentInfo.name` matches the ACP Registry id `dsh-acp-interactive`, which the Registry entry now uses together with a description that states the community-maintained, unofficial status. See the [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md).
