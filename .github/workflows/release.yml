@@ -68,16 +68,23 @@ jobs:
             npm publish --provenance --access public
           fi
 
-      - name: Create the GitHub Release
+      - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${GITHUB_REF_NAME#v}" \
-            deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # A re-run (for example after enabling trusted publishing) refreshes
+            # the assets instead of failing on the existing Release.
+            gh release upload "$GITHUB_REF_NAME" --clobber \
+              deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${GITHUB_REF_NAME#v}" \
+              deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
+          fi
 
       # A Release created with GITHUB_TOKEN does not fire `release: published`
       # for other workflows, so dispatch the Registry check explicitly once the
