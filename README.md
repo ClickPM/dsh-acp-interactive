@@ -62,6 +62,10 @@ Tool calls run inside the Harness sandbox. Under the `read-only` preset a write 
 
 ![The approved write card with its content, the read-back, and the created file](assets/zed-edit-result.png)
 
+## 1.0.9
+
+Version `1.0.9` answers a `session/prompt` on the official DeepSeek route with `auth_required` while `DEEPSEEK_API_KEY` is not configured, regardless of other providers in the model directory. `1.0.7` deliberately stopped gating `session/new` for multi-provider deployments so those users could open a session and switch routes, but a prompt on the DeepSeek route then failed as an internal model-call error; clients such as Zed show the authentication action for `auth_required` from `session/prompt` too. Direct slash commands never reach the model and are not gated.
+
 ## 1.0.8
 
 Version `1.0.8` makes the `Configure DeepSeek API key` action actually launch `--setup` in Zed. Zed's stable releases run terminal authentication only through the legacy `_meta["terminal-auth"]` object on the method (its handling of the stable `type: "terminal"` method sits behind a beta flag), and that object must name an executable itself; the method now carries it, pointing at the Node executable running the server and this package's own `bin.js --setup`, which holds for a global install, a Registry `npx` install, and a checkout alike, with `DSH_HOME` forwarded when the server was started with one. `session/new` also keeps re-reading an unconfigured key for one second before answering `auth_required`, so the retry Zed issues the instant the setup terminal exits sees the key the credential provider's watcher loads about 100 ms after the write. The launcher now also exits on its own when the client closes its stdin; previously the composition's file watchers kept the process alive until a signal arrived.
@@ -132,8 +136,11 @@ credential's configured state, never its value, and a key stored by `--setup`
 is seen by the next `session/new` without a restart. Deployments that select
 another default provider are not gated, and neither is a model directory that
 offers other providers (for example `llm-pi-ai` routes from `settings.yaml`):
-such a user may hold credentials for those routes and switch to them, and a
-missing DeepSeek key then fails only when the DeepSeek route is used.
+such a user may hold credentials for those routes and switch to them. A
+`session/prompt` whose current route is the official DeepSeek provider is
+checked the same way regardless, so a missing DeepSeek key surfaces as
+`auth_required` — and the client's authentication action — rather than as a
+model-call error; direct slash commands are not gated.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 

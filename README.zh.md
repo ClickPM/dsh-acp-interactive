@@ -62,6 +62,10 @@ dsh-acp-interactive --setup
 
 ![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
 
+## 1.0.9
+
+`1.0.9` 让当前 route 为 DeepSeek 官方 provider 的 `session/prompt` 在 `DEEPSEEK_API_KEY` 未配置时返回 `auth_required`，不论模型目录里是否还有其他 provider。`1.0.7` 特意不再在多 provider 部署上拦 `session/new`，让这类用户能先开会话再切换路由，但此后在 DeepSeek 路由上提问会以内部模型调用错误失败；Zed 等客户端对来自 `session/prompt` 的 `auth_required` 同样会展示认证操作。直接的斜杠命令不经过模型，不做门控。
+
 ## 1.0.8
 
 `1.0.8` 让 `Configure DeepSeek API key` 操作在 Zed 里真正拉起 `--setup`。Zed 的稳定版只通过方法上旧的 `_meta["terminal-auth"]` 对象执行终端认证（对稳定 `type: "terminal"` 方法的处理在 beta 标志之后），且该对象必须自带可执行文件；方法现在携带它，指向运行本服务的 Node 可执行文件和本包自己的 `bin.js --setup`——全局安装、Registry 的 `npx` 安装、源码检出都成立，服务以 `DSH_HOME` 启动时会转发该变量。`session/new` 在回答 `auth_required` 前还会持续一秒重读未配置的 key，因为 Zed 在 setup 终端退出的瞬间就重试，而凭据 provider 的 watcher 要在写入后约 100 ms 才加载到。launcher 现在还会在客户端关闭其 stdin 后自行退出；此前组合中的文件 watcher 会让进程一直活到收到信号为止。
@@ -125,8 +129,10 @@ stdout 仅传输 JSON-RPC 的约束。
 "已配置"状态，不读取值；`--setup` 存入的 key 会被下一次 `session/new`
 直接看到，无需重启。选择其他默认 provider 的部署不做此门控；模型目录中还有
 其他 provider（例如 `settings.yaml` 里的 `llm-pi-ai` 路由）时也不做——这样的
-用户可能持有那些路由的凭据并切换过去，缺少 DeepSeek key 只在真正使用
-DeepSeek 路由时才报错。
+用户可能持有那些路由的凭据并切换过去。但当前 route 为 DeepSeek 官方 provider
+的 `session/prompt` 无论如何都会做同样的检查，因此缺少 DeepSeek key 表现为
+`auth_required`（客户端随即展示认证操作），而不是模型调用错误；直接的斜杠命令
+不做门控。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 
