@@ -46,6 +46,10 @@ dsh-acp-interactive --setup
 
 ![权限 preset 选择器（read-only、workspace-write、danger-full-access）与推理强度选择器（Default、Off、Low、High、Max）](assets/zed-controls.png)
 
+## 1.0.6
+
+`1.0.6` 让 `session/new` 在组合默认 route 为 DeepSeek 官方 provider 且 `DEEPSEEK_API_KEY` 未配置时返回 ACP 的 `auth_required` 错误。客户端只在收到该错误时才渲染 `authMethods`，所以 `1.0.5` 始终公布的方法在 Zed 里直到第一次提问失败前仍然不可见；现在没有 key 时新开线程就会出现 `Configure DeepSeek API key` 操作，`--setup` 存入的 key 会被下一次 `session/new` 直接采用。检查只用凭据存储的 `describe()`（仅"已配置"状态，不读值），且只作用于 DeepSeek 默认 route。见 [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md)。
+
 ## 1.0.5
 
 `1.0.5` 始终公布 `deepseek-api-key` 认证方法：客户端声明 terminal authentication 时为 `terminal` 类型，否则为 agent 类型方法，其描述指向 `--setup` 与 `DEEPSEEK_API_KEY`，因此未声明该能力的客户端（例如 JetBrains IDE，其 `initialize` 不带 terminal-auth 标志）看到的是配置说明而不是空列表。`agentInfo` 改为从 `package.json` 读取包版本，`agentInfo.name` 与 ACP Registry id `dsh-acp-interactive` 一致；Registry 条目也改用该 id，并在描述中声明社区维护、非官方的身份。见 [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md)。
@@ -88,6 +92,12 @@ authentication 的客户端（稳定的 `clientCapabilities.auth.terminal` 或�
 随即成功返回——凭据由 Harness 凭据存储在第一次模型请求时解析，不由 transport
 处理。terminal setup 是独立进程，不会启动 ACP transport；正常服务模式仍保留
 stdout 仅传输 JSON-RPC 的约束。
+
+当组合的默认 route 是 DeepSeek 官方 provider 且 `DEEPSEEK_API_KEY` 尚未配置时，
+`session/new` 返回 ACP 的 `auth_required` 错误，因此 Zed 等客户端会在第一次
+提问前展示该认证方法，而不是在第一次模型请求时才报错。该检查只读取凭据的
+"已配置"状态，不读取值；`--setup` 存入的 key 会被下一次 `session/new`
+直接看到，无需重启。选择其他默认 provider 的部署不做此门控。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 

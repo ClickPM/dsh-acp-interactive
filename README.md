@@ -46,6 +46,10 @@ The `/` palette lists the human commands discovered from the composed Harness pl
 
 ![Permission preset selector (read-only, workspace-write, danger-full-access) and reasoning-effort selector (Default, Off, Low, High, Max)](assets/zed-controls.png)
 
+## 1.0.6
+
+Version `1.0.6` makes `session/new` return the ACP `auth_required` error while the composition's default route is the official DeepSeek provider and `DEEPSEEK_API_KEY` is not configured. Clients render `authMethods` only on that error, so `1.0.5`'s always-advertised method was still invisible in Zed until the first prompt failed; now the `Configure DeepSeek API key` action appears when a new thread is opened without a key, and the key stored by `--setup` is picked up by the next `session/new`. The check uses the credential store's `describe()` (configured state only, never the value) and applies only to the DeepSeek default route. See the [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md).
+
 ## 1.0.5
 
 Version `1.0.5` always advertises the `deepseek-api-key` authentication method: as a `terminal` method when the client declares terminal authentication, and otherwise as an agent-type method whose description points at `--setup` and `DEEPSEEK_API_KEY`, so clients that do not declare the capability (for example JetBrains IDEs, whose `initialize` carries no terminal-auth flag) still see how to configure the key instead of an empty list. `agentInfo` now reports the package version from `package.json` instead of a hardcoded string, and `agentInfo.name` matches the ACP Registry id `dsh-acp-interactive`, which the Registry entry now uses together with a description that states the community-maintained, unofficial status. See the [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md).
@@ -93,6 +97,14 @@ credentials are resolved by the Harness credential store at the first model
 request rather than by the transport. The terminal setup runs as a separate
 process and does not start the ACP transport; normal server mode continues to
 reserve stdout for JSON-RPC frames.
+
+`session/new` returns the ACP `auth_required` error while the composition's
+default route is the official DeepSeek provider and `DEEPSEEK_API_KEY` is not
+configured, so clients such as Zed show the method before the first prompt
+instead of failing at the first model request. The check reads only the
+credential's configured state, never its value, and a key stored by `--setup`
+is seen by the next `session/new` without a restart. Deployments that select
+another default provider are not gated.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
