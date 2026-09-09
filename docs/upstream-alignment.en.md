@@ -220,3 +220,5 @@ Acceptance: a Registry reviewer can verify package provenance, tests, upstream r
 ## Current Priority
 
 Before active feature work resumes, quality work proceeds as `Q0 → Q1 → Q2 → Q3 → Q4`. Q0 defines provenance and notice boundaries only for retained material; Q1 makes evidence public; Q2 pins and observes upstream; Q3 verifies the real client; Q4 assembles release and Registry evidence. Feature breadth does not interrupt this order except for correctness, security, or upstream-compatibility fixes.
+
+Status as of `1.0.4`: the Q1 cross-platform CI matrix, the Q4 tag-driven release workflow, and the in-repository Registry entry with the Registry's own validator run are in place; see the [Public CI and Registry Evidence Agent Note](agent-notes/2026-09-09-public-ci-and-registry-evidence.md). Trusted-publishing activation, Q0, Q2, and Q3 remain open.

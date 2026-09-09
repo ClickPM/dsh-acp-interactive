@@ -1,31 +1,56 @@
 # dsh-acp-interactive
 
-[中文](README.md) | English
+[![npm](https://img.shields.io/npm/v/deepseekharness-acp-interactive)](https://www.npmjs.com/package/deepseekharness-acp-interactive)
+[![CI](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml/badge.svg)](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml)
+[![Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml/badge.svg)](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+English | [中文](README.zh.md)
 
 Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh agents on demand and projects their live session events into ACP message, thought, tool, permission, plan, title, usage, and command updates. Zed is the first compatibility target.
 
 This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
-## 1.0.3
+`dsh-acp-interactive` is an independent, community-maintained project. It is not affiliated with or endorsed by DeepSeek or Zed Industries; it composes the published `@deepseek-ai/dsh-*` packages behind a reviewed editor profile and does not claim to be the official DeepSeek ACP agent.
 
-Version `1.0.3` recognizes both the stable ACP v1 terminal-auth capability and
-the ACP Registry validator's legacy `_meta["terminal-auth"]` compatibility
-flag. The public npm package remains `deepseekharness-acp-interactive`.
-Supporting Zed/ACP clients can configure an official DeepSeek API key through
-an isolated `--setup` process; the ordinary ACP transport never handles or
-prints the secret.
+## Quick start
+
+```sh
+npm install --global deepseekharness-acp-interactive
+dsh-acp-interactive --setup
+```
+
+`--setup` stores `DEEPSEEK_API_KEY` through the Harness credential store without echoing it. Then register the installed command in Zed's `settings.json`; on Windows use the absolute path printed by `where.exe dsh-acp-interactive`:
+
+```json
+{
+  "agent_servers": {
+    "DeepSeek Harness": {
+      "type": "custom",
+      "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
+      "args": []
+    }
+  }
+}
+```
+
+Clients that support ACP terminal authentication, including Zed, also offer a `Configure DeepSeek API key` method that opens the same `--setup` flow. See [Running with Zed](#running-with-zed) for details.
+
+## 1.0.4
+
+Version `1.0.4` makes this English README the default document on GitHub and npm (the Chinese counterpart is [README.zh.md](README.zh.md)), adds public cross-platform CI, a tag-driven release workflow with npm trusted publishing, and keeps the ACP Registry entry (`registry/agent.json` and `icon.svg`) in this repository, where the Registry's own validator scripts re-check it daily. See [Verification and ACP Registry](#verification-and-acp-registry). The test suite and the packed-install verifier now pass on Linux and macOS as well as Windows; the fixes were confined to test fixtures and the verifier script. Runtime behavior is unchanged from `1.0.3`, which recognizes both the stable ACP v1 terminal-auth capability and the ACP Registry validator's legacy `_meta["terminal-auth"]` compatibility flag; supporting clients configure an official DeepSeek API key through an isolated `--setup` process, and the ordinary ACP transport never handles or prints the secret.
 
 ## Installation
 
-Install globally from npm and pin the version:
+Install globally from npm:
 
 ```sh
-npm install --global deepseekharness-acp-interactive@1.0.3
+npm install --global deepseekharness-acp-interactive
 ```
 
-For source auditing, compare the package with the GitHub `v1.0.3` tag.
+Every published version corresponds to a `vX.Y.Z` tag and a [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases) whose assets include the tarball and its SHA-256 checksum, so an installation can be audited against the tagged source.
 
-Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+The published tarball already contains the built `lib/`; no build step runs at install time. Installation adds the `dsh-acp-interactive` command, which loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Before using the official DeepSeek API for the first time, run:
 
@@ -207,6 +232,13 @@ Changing provider or model starts using that route's cache identity on the next 
 - MCP supports stable-v1 stdio and Streamable HTTP configuration only; legacy SSE and ACP-proxied transports are rejected. Additional directories remains outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
 - Terminal output is delivered at tool completion rather than incrementally.
 
+## Verification and ACP Registry
+
+- [CI](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml) runs on every push and pull request on Ubuntu, macOS, and Windows with Node `22.19` and `24`: `npm ci`, typecheck, build and tests, a pack dry run, and `verify:packed`, which installs the packed tarball outside the repository, runs `--setup`, and drives the real launcher through `initialize`, `session/new` with a session-scoped MCP server, and `session/close`.
+- [Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml) stages [`registry/agent.json`](registry/agent.json) and [`icon.svg`](icon.svg) into a fresh clone of [agentclientprotocol/registry](https://github.com/agentclientprotocol/registry) and runs that repository's own `build_registry.py --dry-run` and `verify_agents.py --auth-check` against the published npm package, daily and after every release.
+- [Release](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/release.yml) runs on `v*.*.*` tags, re-verifies the tagged tree, publishes through npm trusted publishing (ordinary CI holds no publishing token), and attaches the tarball and `SHA256SUMS.txt` to the GitHub Release.
+- Registry submission: [agentclientprotocol/registry#585](https://github.com/agentclientprotocol/registry/pull/585). `npm run check:registry` validates the entry and icon against `package.json` locally.
+
 ## Development
 
 ```sh
@@ -215,6 +247,7 @@ npm test
 npm run typecheck
 npm run build
 npm run check:profile
+npm run check:registry
 npm run verify:packed
 ```
 

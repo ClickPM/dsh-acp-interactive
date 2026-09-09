@@ -24,4 +24,6 @@
 
 - Keep package version, manifest, lockfile, packaged configuration, docs, and local installation instructions consistent.
 - Verify a packed installation from outside this repository before publishing a behavior release.
+- Tags `v*.*.*` run `.github/workflows/release.yml`; npm publishing uses trusted publishing gated by the `NPM_TRUSTED_PUBLISHING` repository variable. Never add a publishing token to CI.
+- `registry/agent.json` and `icon.svg` are the canonical ACP Registry entry; run `npm run check:registry` whenever either changes.
 - Do not commit or push unless the user explicitly requests it.

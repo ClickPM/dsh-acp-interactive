@@ -1,30 +1,56 @@
 # dsh-acp-interactive
 
-中文 | [English](README.en.md)
+[![npm](https://img.shields.io/npm/v/deepseekharness-acp-interactive)](https://www.npmjs.com/package/deepseekharness-acp-interactive)
+[![CI](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml/badge.svg)](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml)
+[![Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml/badge.svg)](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+[English](README.md) | 中文
 
 面向编辑器的 Agent Client Protocol JSON-RPC stdio 服务器。它按需创建 dsh agent，并把实时 session 事件投影为 ACP 消息、思考、工具、审批、计划、标题、用量和命令更新。首个兼容目标是 Zed。
 
 本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
-## 1.0.3
+`dsh-acp-interactive` 是独立的社区维护项目，与 DeepSeek 和 Zed Industries 没有隶属或背书关系；它把已发布的 `@deepseek-ai/dsh-*` 包组合在经过评审的 editor profile 之后，不自称 DeepSeek 官方 ACP agent。
 
-`1.0.3` 让 terminal authentication 同时识别稳定 ACP v1 能力字段和 ACP
-Registry validator 的旧 `_meta["terminal-auth"]` 兼容字段。公开 npm 包仍为
-`deepseekharness-acp-interactive`；支持该能力的 Zed/ACP 客户端可以通过独立的
-`--setup` 进程配置 DeepSeek 官方 API key，普通 ACP transport 不接触或输出
-密钥。
+## 快速开始
+
+```sh
+npm install --global deepseekharness-acp-interactive
+dsh-acp-interactive --setup
+```
+
+`--setup` 通过 Harness 凭据存储保存 `DEEPSEEK_API_KEY`，不会回显。然后在 Zed 的 `settings.json` 中登记已安装的命令；Windows 上使用 `where.exe dsh-acp-interactive` 打印的绝对路径：
+
+```json
+{
+  "agent_servers": {
+    "DeepSeek Harness": {
+      "type": "custom",
+      "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
+      "args": []
+    }
+  }
+}
+```
+
+支持 ACP terminal authentication 的客户端（包括 Zed）还会提供 `Configure DeepSeek API key` 方法，打开同一个 `--setup` 流程。详见[在 Zed 中运行](#在-zed-中运行)。
+
+## 1.0.4
+
+`1.0.4` 把英文 README 设为 GitHub 与 npm 的默认文档（中文版即本文件），新增公开的跨平台 CI、由 tag 驱动并使用 npm trusted publishing 的发布流程，并把 ACP Registry 条目（`registry/agent.json` 与 `icon.svg`）保存在本仓库，由 Registry 自己的校验脚本每日复查。详见[验证与 ACP Registry](#验证与-acp-registry)。测试套件与 packed-install 校验脚本现在在 Linux 和 macOS 上也能通过，修改仅限测试夹具与校验脚本。运行时行为与 `1.0.3` 一致：terminal authentication 同时识别稳定 ACP v1 能力字段和 ACP Registry validator 的旧 `_meta["terminal-auth"]` 兼容字段；支持该能力的客户端通过独立的 `--setup` 进程配置 DeepSeek 官方 API key，普通 ACP transport 不接触或输出密钥。
 
 ## 安装
 
-从 npm 全局安装并锁定版本：
+从 npm 全局安装：
 
 ```sh
-npm install --global deepseekharness-acp-interactive@1.0.3
+npm install --global deepseekharness-acp-interactive
 ```
 
-需要审计源码时，可对照 GitHub 的 `v1.0.3` tag。
+每个已发布版本都对应一个 `vX.Y.Z` tag 和一条 [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases)，其附件包含 tarball 及其 SHA-256 校验值，因此安装结果可以对照打 tag 的源码审计。
 
-安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
+发布的 tarball 已包含构建好的 `lib/`，安装时不运行构建步骤。安装会添加 `dsh-acp-interactive` 命令，该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
 首次使用 DeepSeek 官方 API 前，可在终端运行：
 
@@ -203,6 +229,13 @@ Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改
 - MCP 仅支持稳定 v1 的 stdio 与 Streamable HTTP 配置，legacy SSE 和 ACP 代理 transport 会被拒绝；Additional directories 仍不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
 - Terminal 输出在工具完成时发送，尚未增量推送。
 
+## 验证与 ACP Registry
+
+- [CI](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml) 在每次 push 和 pull request 时于 Ubuntu、macOS、Windows 与 Node `22.19`、`24` 上运行：`npm ci`、typecheck、构建与测试、pack dry run，以及 `verify:packed`——它把打包后的 tarball 安装到仓库之外，运行 `--setup`，并驱动真实 launcher 完成 `initialize`、带 session 级 MCP server 的 `session/new` 和 `session/close`。
+- [Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml) 把 [`registry/agent.json`](registry/agent.json) 与 [`icon.svg`](icon.svg) 放进 [agentclientprotocol/registry](https://github.com/agentclientprotocol/registry) 的全新 clone，并用该仓库自己的 `build_registry.py --dry-run` 和 `verify_agents.py --auth-check` 对已发布的 npm 包做校验；每日运行，并在每次 release 后运行。
+- [Release](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/release.yml) 在 `v*.*.*` tag 上运行，重新验证打 tag 的代码树，通过 npm trusted publishing 发布（普通 CI 不持有发布 token），并把 tarball 和 `SHA256SUMS.txt` 附加到 GitHub Release。
+- Registry 提交：[agentclientprotocol/registry#585](https://github.com/agentclientprotocol/registry/pull/585)。`npm run check:registry` 在本地把条目和图标与 `package.json` 对照校验。
+
 ## 开发
 
 ```sh
@@ -211,6 +244,7 @@ npm test
 npm run typecheck
 npm run build
 npm run check:profile
+npm run check:registry
 npm run verify:packed
 ```
 

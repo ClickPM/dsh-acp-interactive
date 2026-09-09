@@ -1,0 +1,79 @@
+name: Release
+
+# Triggered by a version tag. Verifies the tagged tree, packs the tarball,
+# publishes to npm through trusted publishing (OIDC, no long-lived token) when
+# the repository variable NPM_TRUSTED_PUBLISHING is "true", and creates the
+# GitHub Release with the tarball and its checksum.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Verify, publish, release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Check that the tag matches package.json
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json version $VERSION" >&2
+            exit 1
+          fi
+
+      - name: Install from lockfile
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build and test
+        run: npm test
+
+      - name: Registry entry and icon
+        run: node scripts/check-registry-entry.mjs
+
+      - name: Install the packed tarball outside the repository and drive the real launcher
+        run: npm run verify:packed
+
+      - name: Pack
+        run: |
+          npm pack --ignore-scripts
+          sha256sum deepseekharness-acp-interactive-*.tgz > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish to npm (trusted publishing)
+        if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "deepseekharness-acp-interactive@$VERSION" version >/dev/null 2>&1; then
+            echo "deepseekharness-acp-interactive@$VERSION is already on npm; skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${GITHUB_REF_NAME#v}" \
+            deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt

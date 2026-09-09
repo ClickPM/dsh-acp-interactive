@@ -1,0 +1,62 @@
+name: Registry auth check
+
+# Runs the ACP Registry's own validator scripts against the published npm
+# package, exactly as agentclientprotocol/registry CI does for a submission:
+# schema and icon validation, then a raw `initialize` handshake that must
+# return an `agent` or `terminal` auth method.
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published npm version to probe (default: the version in registry/agent.json)'
+        required: false
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  auth-check:
+    name: verify_agents.py --auth-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Clone the ACP Registry
+        run: git clone --depth 1 https://github.com/agentclientprotocol/registry.git "$RUNNER_TEMP/registry"
+
+      - name: Stage this repository's registry entry
+        env:
+          VERSION_OVERRIDE: ${{ inputs.version || (github.event_name == 'release' && github.event.release.tag_name) || '' }}
+        run: |
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            node scripts/stage-registry-entry.mjs "$RUNNER_TEMP/registry" --version "$VERSION_OVERRIDE"
+          else
+            node scripts/stage-registry-entry.mjs "$RUNNER_TEMP/registry"
+          fi
+
+      - name: Validate manifest and icon (build_registry.py --dry-run)
+        working-directory: ${{ runner.temp }}/registry
+        env:
+          # Reachability of every other agent's URLs is the registry's concern;
+          # the handshake below proves this package is installable.
+          SKIP_URL_VALIDATION: '1'
+        run: uv run --with jsonschema .github/workflows/build_registry.py --dry-run
+
+      - name: Auth handshake against the published package
+        working-directory: ${{ runner.temp }}/registry
+        run: python3 .github/workflows/verify_agents.py --auth-check --agent deepseek-harness-interactive --clean --verbose

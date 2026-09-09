@@ -1,7 +1,7 @@
 {
   "name": "deepseekharness-acp-interactive",
-  "version": "1.0.3",
-  "description": "面向 Zed 等编辑器的 DeepSeek Harness 交互式 ACP 插件。",
+  "version": "1.0.4",
+  "description": "Editor-facing Agent Client Protocol (ACP) server for Zed and other ACP clients, composed from published DeepSeek Harness plugins.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -37,7 +37,7 @@
     "config",
     "docs",
     "README.md",
-    "README.en.md"
+    "README.zh.md"
   ],
   "scripts": {
     "build": "tsdown",
@@ -47,14 +47,17 @@
     "test:harness": "node scripts/test-harness.mjs",
     "test:all": "npm test && npm run test:harness && npm run check:profile",
     "check:profile": "node scripts/check-editor-profile.mjs",
+    "check:registry": "node scripts/check-registry-entry.mjs",
     "verify:packed": "node scripts/verify-packed-install.mjs"
   },
   "keywords": [
     "ai-agent",
     "cordis",
+    "deepseek",
     "deepseek-harness",
     "dsh-plugin",
     "acp",
+    "agent-client-protocol",
     "zed"
   ],
   "dependencies": {
