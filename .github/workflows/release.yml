@@ -1,13 +1,20 @@
 name: Release
 
-# Triggered by a version tag. Verifies the tagged tree, packs the tarball,
-# publishes to npm through trusted publishing (OIDC, no long-lived token) when
-# the repository variable NPM_TRUSTED_PUBLISHING is "true", and creates the
-# GitHub Release with the tarball and its checksum.
+# Triggered by a version tag, or dispatched by hand for an existing tag.
+# Verifies the tagged tree, packs the tarball, publishes to npm through
+# trusted publishing (OIDC, no long-lived token) when the repository variable
+# NPM_TRUSTED_PUBLISHING is "true", and creates or refreshes the GitHub
+# Release with the tarball and its checksum.
 
 on:
   push:
     tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to (re)publish, e.g. v1.0.4'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -19,9 +26,12 @@ jobs:
     name: Verify, publish, release
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
       - uses: actions/setup-node@v7
@@ -32,8 +42,8 @@ jobs:
       - name: Check that the tag matches package.json
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match package.json version $VERSION" >&2
+          if [ "v$VERSION" != "$TAG" ]; then
+            echo "tag $TAG does not match package.json version $VERSION" >&2
             exit 1
           fi
 
@@ -72,17 +82,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
             # A re-run (for example after enabling trusted publishing) refreshes
             # the assets instead of failing on the existing Release.
-            gh release upload "$GITHUB_REF_NAME" --clobber \
+            gh release upload "$TAG" --clobber \
               deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
           else
-            gh release create "$GITHUB_REF_NAME" \
+            gh release create "$TAG" \
               --verify-tag \
-              --title "$GITHUB_REF_NAME" \
+              --title "$TAG" \
               --generate-notes \
-              --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${GITHUB_REF_NAME#v}" \
+              --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${TAG#v}" \
               deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
           fi
 
@@ -93,4 +103,4 @@ jobs:
         if: vars.NPM_TRUSTED_PUBLISHING == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run registry-auth.yml --ref "$GITHUB_REF_NAME" -f version="${GITHUB_REF_NAME#v}"
+        run: gh workflow run registry-auth.yml --ref "$TAG" -f version="${TAG#v}"
