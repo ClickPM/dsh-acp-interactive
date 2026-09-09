@@ -61,4 +61,4 @@ jobs:
 
       - name: Auth handshake against the published package
         working-directory: ${{ runner.temp }}/registry
-        run: python3 .github/workflows/verify_agents.py --auth-check --agent deepseek-harness-interactive --clean --verbose
+        run: python3 .github/workflows/verify_agents.py --auth-check --agent dsh-acp-interactive --clean --verbose

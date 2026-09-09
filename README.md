@@ -34,7 +34,11 @@ dsh-acp-interactive --setup
 }
 ```
 
-Clients that support ACP terminal authentication, including Zed, also offer a `Configure DeepSeek API key` method that opens the same `--setup` flow. See [Running with Zed](#running-with-zed) for details.
+Every ACP client sees a `Configure DeepSeek API key` authentication method: clients with terminal authentication, including Zed, open the same `--setup` flow from it, and other clients get its instructions as an agent-type method. See [Running with Zed](#running-with-zed) for details.
+
+## 1.0.5
+
+Version `1.0.5` always advertises the `deepseek-api-key` authentication method: as a `terminal` method when the client declares terminal authentication, and otherwise as an agent-type method whose description points at `--setup` and `DEEPSEEK_API_KEY`, so clients that do not declare the capability (for example JetBrains IDEs, whose `initialize` carries no terminal-auth flag) still see how to configure the key instead of an empty list. `agentInfo` now reports the package version from `package.json` instead of a hardcoded string, and `agentInfo.name` matches the ACP Registry id `dsh-acp-interactive`, which the Registry entry now uses together with a description that states the community-maintained, unofficial status. See the [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md).
 
 ## 1.0.4
 
@@ -68,11 +72,17 @@ does not write a shadowed file credential. Setup only stores the credential;
 it makes no network request, so the first model request still validates the
 key.
 
-Clients that advertise ACP terminal authentication see a
-`Configure DeepSeek API key` method and open the same interactive `--setup`
-flow. Clients without terminal-auth support are not offered that method. The
-terminal setup runs as a separate process and does not start the ACP transport;
-normal server mode continues to reserve stdout for JSON-RPC frames.
+`initialize` always advertises one `deepseek-api-key` authentication method.
+Clients that declare ACP terminal authentication (stable
+`clientCapabilities.auth.terminal` or the legacy `_meta["terminal-auth"]`
+flag) receive it as a `terminal` method that opens the same interactive
+`--setup` flow. Clients without that capability receive it as a plain
+agent-type method whose description points at `dsh-acp-interactive --setup`
+and `DEEPSEEK_API_KEY`; `authenticate` then succeeds immediately, because
+credentials are resolved by the Harness credential store at the first model
+request rather than by the transport. The terminal setup runs as a separate
+process and does not start the ACP transport; normal server mode continues to
+reserve stdout for JSON-RPC frames.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 

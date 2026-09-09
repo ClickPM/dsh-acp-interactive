@@ -34,7 +34,11 @@ dsh-acp-interactive --setup
 }
 ```
 
-支持 ACP terminal authentication 的客户端（包括 Zed）还会提供 `Configure DeepSeek API key` 方法，打开同一个 `--setup` 流程。详见[在 Zed 中运行](#在-zed-中运行)。
+每个 ACP 客户端都会看到 `Configure DeepSeek API key` 认证方法：支持 terminal authentication 的客户端（包括 Zed）从中打开同一个 `--setup` 流程，其他客户端则以 agent 类型方法收到同样的说明。详见[在 Zed 中运行](#在-zed-中运行)。
+
+## 1.0.5
+
+`1.0.5` 始终公布 `deepseek-api-key` 认证方法：客户端声明 terminal authentication 时为 `terminal` 类型，否则为 agent 类型方法，其描述指向 `--setup` 与 `DEEPSEEK_API_KEY`，因此未声明该能力的客户端（例如 JetBrains IDE，其 `initialize` 不带 terminal-auth 标志）看到的是配置说明而不是空列表。`agentInfo` 改为从 `package.json` 读取包版本，`agentInfo.name` 与 ACP Registry id `dsh-acp-interactive` 一致；Registry 条目也改用该 id，并在描述中声明社区维护、非官方的身份。见 [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md)。
 
 ## 1.0.4
 
@@ -66,10 +70,14 @@ file credential 时留空会保留原值；若启动环境已经提供
 file credential。此流程只保存凭据，不会发送网络请求；第一次模型请求仍负责
 验证 key 是否有效。
 
-支持 ACP terminal authentication 的客户端会在初始化时看到
-`Configure DeepSeek API key` 方法，并用同一个 `--setup` 流程打开交互式终端。
-不声明 terminal-auth 能力的客户端不会收到该方法。terminal setup 是独立进程，
-不会启动 ACP transport；正常服务模式仍保留 stdout 仅传输 JSON-RPC 的约束。
+`initialize` 始终公布一个 `deepseek-api-key` 认证方法。声明 ACP terminal
+authentication 的客户端（稳定的 `clientCapabilities.auth.terminal` 或旧的
+`_meta["terminal-auth"]` 标志）收到的是 `terminal` 类型方法，会用同一个
+`--setup` 流程打开交互式终端；不声明该能力的客户端收到的是普通 agent 类型方法，
+其描述指向 `dsh-acp-interactive --setup` 和 `DEEPSEEK_API_KEY`，`authenticate`
+随即成功返回——凭据由 Harness 凭据存储在第一次模型请求时解析，不由 transport
+处理。terminal setup 是独立进程，不会启动 ACP transport；正常服务模式仍保留
+stdout 仅传输 JSON-RPC 的约束。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 

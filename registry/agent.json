@@ -1,8 +1,8 @@
 {
-  "id": "deepseek-harness-interactive",
+  "id": "dsh-acp-interactive",
   "name": "DeepSeek Harness Interactive",
   "version": "1.0.4",
-  "description": "Editor-facing ACP server connecting Zed and other ACP clients to published DeepSeek Harness components.",
+  "description": "Community-maintained (unofficial) ACP adapter for DeepSeek Harness: an editor-facing server composed from the published @deepseek-ai/dsh-* plugins for Zed and other ACP clients. Not affiliated with DeepSeek.",
   "repository": "https://github.com/ClickPM/dsh-acp-interactive",
   "website": "https://github.com/ClickPM/dsh-acp-interactive#readme",
   "authors": [
