@@ -46,6 +46,10 @@ The `/` palette lists the human commands discovered from the composed Harness pl
 
 ![Permission preset selector (read-only, workspace-write, danger-full-access) and reasoning-effort selector (Default, Off, Low, High, Max)](assets/zed-controls.png)
 
+## 1.0.7
+
+Version `1.0.7` narrows the `auth_required` gate to deployments whose model directory offers only the official DeepSeek provider. A user whose `settings.yaml` adds `llm-pi-ai` routes is no longer blocked from opening a session and switching to those routes when no DeepSeek key is stored; a missing DeepSeek key then fails only when the DeepSeek route is actually used. Fresh installations still see the `Configure DeepSeek API key` action before the first prompt.
+
 ## 1.0.6
 
 Version `1.0.6` makes `session/new` return the ACP `auth_required` error while the composition's default route is the official DeepSeek provider and `DEEPSEEK_API_KEY` is not configured. Clients render `authMethods` only on that error, so `1.0.5`'s always-advertised method was still invisible in Zed until the first prompt failed; now the `Configure DeepSeek API key` action appears when a new thread is opened without a key, and the key stored by `--setup` is picked up by the next `session/new`. The check uses the credential store's `describe()` (configured state only, never the value) and applies only to the DeepSeek default route. See the [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md).
@@ -104,7 +108,10 @@ configured, so clients such as Zed show the method before the first prompt
 instead of failing at the first model request. The check reads only the
 credential's configured state, never its value, and a key stored by `--setup`
 is seen by the next `session/new` without a restart. Deployments that select
-another default provider are not gated.
+another default provider are not gated, and neither is a model directory that
+offers other providers (for example `llm-pi-ai` routes from `settings.yaml`):
+such a user may hold credentials for those routes and switch to them, and a
+missing DeepSeek key then fails only when the DeepSeek route is used.
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 

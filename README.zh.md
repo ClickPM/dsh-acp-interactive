@@ -46,6 +46,10 @@ dsh-acp-interactive --setup
 
 ![权限 preset 选择器（read-only、workspace-write、danger-full-access）与推理强度选择器（Default、Off、Low、High、Max）](assets/zed-controls.png)
 
+## 1.0.7
+
+`1.0.7` 把 `auth_required` 门控收窄到模型目录里只有 DeepSeek 官方 provider 的部署。`settings.yaml` 里加了 `llm-pi-ai` 路由的用户在没有 DeepSeek key 时不再被挡在 session 之外，可以先开会话再切换到那些路由；缺少 DeepSeek key 只在真正使用 DeepSeek 路由时才报错。全新安装仍会在第一次提问前看到 `Configure DeepSeek API key` 操作。
+
 ## 1.0.6
 
 `1.0.6` 让 `session/new` 在组合默认 route 为 DeepSeek 官方 provider 且 `DEEPSEEK_API_KEY` 未配置时返回 ACP 的 `auth_required` 错误。客户端只在收到该错误时才渲染 `authMethods`，所以 `1.0.5` 始终公布的方法在 Zed 里直到第一次提问失败前仍然不可见；现在没有 key 时新开线程就会出现 `Configure DeepSeek API key` 操作，`--setup` 存入的 key 会被下一次 `session/new` 直接采用。检查只用凭据存储的 `describe()`（仅"已配置"状态，不读值），且只作用于 DeepSeek 默认 route。见 [Auth Method Fallback and Registry Id Agent Note](docs/agent-notes/2026-09-09-auth-method-fallback-and-registry-id.md)。
@@ -97,7 +101,10 @@ stdout 仅传输 JSON-RPC 的约束。
 `session/new` 返回 ACP 的 `auth_required` 错误，因此 Zed 等客户端会在第一次
 提问前展示该认证方法，而不是在第一次模型请求时才报错。该检查只读取凭据的
 "已配置"状态，不读取值；`--setup` 存入的 key 会被下一次 `session/new`
-直接看到，无需重启。选择其他默认 provider 的部署不做此门控。
+直接看到，无需重启。选择其他默认 provider 的部署不做此门控；模型目录中还有
+其他 provider（例如 `settings.yaml` 里的 `llm-pi-ai` 路由）时也不做——这样的
+用户可能持有那些路由的凭据并切换过去，缺少 DeepSeek key 只在真正使用
+DeepSeek 路由时才报错。
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
 
