@@ -119,6 +119,16 @@ about 100 ms later; the gate now keeps re-reading `describe()` for
 `CREDENTIAL_SETTLE_MS` (1 s) before answering `auth_required`, which costs a
 fresh installation one second before its first authentication panel.
 
+The 1.0.7 exemption then showed its other edge (1.0.9): a multi-provider
+user with no DeepSeek key opened a session fine and got "Internal error:
+turn failed: llm-deepseek: no API key" on the first prompt. `session/prompt`
+now runs the same key check against the session's *current* route when that
+route is `deepseek-official`, without the directory exemption, and returns
+`auth_required`; Zed shows the authentication action for that error from
+`prompt` as it does from `session/new`. Other routes are not inspected, and
+direct slash commands, which never reach the model, are not gated. The
+`session/new` gate keeps the 1.0.7 rule so route switching stays possible.
+
 Probing the built launcher by hand also showed that it did not exit when its
 stdin closed: the plugin quiesces the connection, but `bin.ts` only exited
 on `SIGINT`/`SIGTERM`, and the composition's file watchers kept the event

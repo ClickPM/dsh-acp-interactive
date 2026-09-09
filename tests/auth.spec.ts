@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { assertSessionCredential, authMethodsFor } from '../src/auth.js'
+import { assertRouteCredential, assertSessionCredential, authMethodsFor } from '../src/auth.js'
 
 /**
  * A gate context whose strict lookup turns positive after `activeAfter` polls
@@ -113,5 +113,14 @@ describe('DeepSeek credential gate', () => {
     const routes = lookup(false, 0, true, ['deepseek-official', 'local-probe'])
     await expect(assertSessionCredential(routes, { provider: 'deepseek-official' })).resolves.toBeUndefined()
     expect(routes.calls()).toBe(0)
+  })
+
+  it('gates a prompt on the DeepSeek route regardless of other providers', async () => {
+    const routes = lookup(false, 0, true, ['deepseek-official', 'local-probe'])
+    await expect(assertRouteCredential(routes, 'deepseek-official', undefined, undefined, 0))
+      .rejects.toMatchObject({ code: -32000, message: expect.stringContaining('--setup') })
+    await expect(assertRouteCredential(routes, 'local-probe')).resolves.toBeUndefined()
+    await expect(assertRouteCredential(routes, undefined)).resolves.toBeUndefined()
+    await expect(assertRouteCredential(lookup(true, 0), 'deepseek-official')).resolves.toBeUndefined()
   })
 })

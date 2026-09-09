@@ -136,6 +136,33 @@ export async function assertSessionCredential(
 ): Promise<void> {
   if (config.provider !== DEEPSEEK_PROVIDER) return
   if (ctx.llm.listProviders().some(provider => provider.id !== DEEPSEEK_PROVIDER)) return
+  await requireDeepSeekKey(ctx, signal, readyTimeoutMs, settleMs)
+}
+
+/**
+ * The same check for a session's current route at prompt time, without the
+ * provider-directory exemption: a session that is about to call the official
+ * DeepSeek route without a key gets `auth_required` instead of an internal
+ * model-call error, and clients show the method for it. Other routes are not
+ * inspected. Direct commands never reach the model and are not gated.
+ */
+export async function assertRouteCredential(
+  ctx: CredentialsLookup,
+  provider: string | undefined,
+  signal?: AbortSignal,
+  readyTimeoutMs = CREDENTIALS_READY_TIMEOUT_MS,
+  settleMs = CREDENTIAL_SETTLE_MS,
+): Promise<void> {
+  if (provider !== DEEPSEEK_PROVIDER) return
+  await requireDeepSeekKey(ctx, signal, readyTimeoutMs, settleMs)
+}
+
+async function requireDeepSeekKey(
+  ctx: CredentialsLookup,
+  signal: AbortSignal | undefined,
+  readyTimeoutMs: number,
+  settleMs: number,
+): Promise<void> {
   const credentials = await activeCredentials(ctx, signal, readyTimeoutMs)
   if (credentials === undefined) return
   const deadline = Date.now() + settleMs

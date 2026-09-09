@@ -170,13 +170,20 @@ describe('interactive ACP bridge edges', () => {
       await bare.dispose()
     }
 
-    // A directory with other providers is not gated on the DeepSeek key either.
-    const routes = await makeHarness([], { provider: 'deepseek-official', model: 'mock' }, ['deepseek-official', 'mock'])
+    // A directory with other providers is not gated at session/new, but a prompt on
+    // the DeepSeek route without a key is answered with auth_required rather than a
+    // model-call failure; once the key exists the same session proceeds.
+    let routeConfigured = false
+    const routes = await makeHarness([textResponse('ok')], { provider: 'deepseek-official', model: 'mock' }, ['deepseek-official', 'mock'])
     try {
-      routes.ctx.provide('credentials', { describe: () => Promise.resolve({ configured: false, writable: true }) })
+      routes.ctx.provide('credentials', { describe: () => Promise.resolve({ configured: routeConfigured, writable: true }) })
       await routes.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
-      await expect(routes.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
-        .resolves.toMatchObject({ sessionId: expect.any(String) })
+      const session = await routes.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+      await expect(routes.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text: 'hi' }] }))
+        .rejects.toMatchObject({ code: -32000, message: expect.stringContaining('--setup') })
+      routeConfigured = true
+      await expect(routes.client.prompt({ sessionId: session.sessionId, prompt: [{ type: 'text', text: 'hi' }] }))
+        .resolves.toMatchObject({ stopReason: 'end_turn' })
     } finally {
       await routes.dispose()
     }

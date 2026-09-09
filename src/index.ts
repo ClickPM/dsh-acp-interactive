@@ -68,7 +68,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
-import { assertSessionCredential, authMethodsFor } from './auth.js'
+import { assertRouteCredential, assertSessionCredential, authMethodsFor } from './auth.js'
 import { admitPrompt, admittedCommandText, InteractivePromptError, projectImage } from './content.js'
 import { turnEndToStopReason } from './codec.js'
 import {
@@ -1057,6 +1057,11 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
               })
               dispatchCommand = skill === undefined || !isUserInvocable(skill)
             }
+          }
+          // A model turn on the official DeepSeek route without a key is answered
+          // with auth_required here rather than as a model-call failure later.
+          if (!dispatchCommand) {
+            await assertRouteCredential(ctx, record.selection.current?.provider, admission.controller.signal)
           }
         } catch (error: unknown) {
           if (admission.cancelRequested || admission.controller.signal.aborted) {
