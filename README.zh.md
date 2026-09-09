@@ -46,6 +46,22 @@ dsh-acp-interactive --setup
 
 ![权限 preset 选择器（read-only、workspace-write、danger-full-access）与推理强度选择器（Default、Off、Low、High、Max）](assets/zed-controls.png)
 
+### 认证
+
+没有存储 key 时新开线程，`session/new` 返回 `auth_required`，Zed 随即展示 `Configure DeepSeek API key` 操作和 agent 自己给出的说明。点击后 Zed 以终端任务运行 `--setup`；该终端退出后，Zed 用存好的 key 重试 `session/new`。
+
+![Zed 的认证面板："Authenticate to DeepSeek Harness"、Configure DeepSeek API key 按钮，以及 DEEPSEEK_API_KEY 未配置的提示](assets/zed-auth.png)
+
+![点击之后：线程显示 "Authenticating to DeepSeek Harness…"，Zed 正在运行 Configure DeepSeek API key 终端任务](assets/zed-auth-terminal.png)
+
+### 权限
+
+工具调用在 Harness 沙箱内执行。`read-only` preset 下的写入会被拒绝并附带沙箱的升级提示；重试的调用以 ACP permission request 的形式到达 Zed，给出 `Allow once` / `Reject`，批准后的写入及其回读以工具卡片呈现。
+
+![read-only 下被拒绝的写入，随后升级后的写入等待 Allow once 或 Reject](assets/zed-permission.png)
+
+![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
+
 ## 1.0.8
 
 `1.0.8` 让 `Configure DeepSeek API key` 操作在 Zed 里真正拉起 `--setup`。Zed 的稳定版只通过方法上旧的 `_meta["terminal-auth"]` 对象执行终端认证（对稳定 `type: "terminal"` 方法的处理在 beta 标志之后），且该对象必须自带可执行文件；方法现在携带它，指向运行本服务的 Node 可执行文件和本包自己的 `bin.js --setup`——全局安装、Registry 的 `npx` 安装、源码检出都成立，服务以 `DSH_HOME` 启动时会转发该变量。`session/new` 在回答 `auth_required` 前还会持续一秒重读未配置的 key，因为 Zed 在 setup 终端退出的瞬间就重试，而凭据 provider 的 watcher 要在写入后约 100 ms 才加载到。launcher 现在还会在客户端关闭其 stdin 后自行退出；此前组合中的文件 watcher 会让进程一直活到收到信号为止。

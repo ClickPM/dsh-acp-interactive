@@ -46,6 +46,22 @@ The `/` palette lists the human commands discovered from the composed Harness pl
 
 ![Permission preset selector (read-only, workspace-write, danger-full-access) and reasoning-effort selector (Default, Off, Low, High, Max)](assets/zed-controls.png)
 
+### Authentication
+
+Opening a thread without a stored key answers `session/new` with `auth_required`, so Zed shows the `Configure DeepSeek API key` action with the agent's own instructions. Clicking it runs `--setup` in a Zed terminal task; when that terminal exits, Zed retries `session/new` with the stored key.
+
+![Zed's authentication panel: "Authenticate to DeepSeek Harness", a Configure DeepSeek API key button, and the message that DEEPSEEK_API_KEY is not configured](assets/zed-auth.png)
+
+![After clicking: the thread shows "Authenticating to DeepSeek Harness…" while Zed runs the Configure DeepSeek API key terminal task](assets/zed-auth-terminal.png)
+
+### Permissions
+
+Tool calls run inside the Harness sandbox. Under the `read-only` preset a write is denied with the sandbox's escalation hint; the retried call arrives in Zed as an ACP permission request with `Allow once` / `Reject`, and the approved write and its read-back render as tool cards.
+
+![A write denied under read-only, then the escalated write awaiting Allow once or Reject](assets/zed-permission.png)
+
+![The approved write card with its content, the read-back, and the created file](assets/zed-edit-result.png)
+
 ## 1.0.8
 
 Version `1.0.8` makes the `Configure DeepSeek API key` action actually launch `--setup` in Zed. Zed's stable releases run terminal authentication only through the legacy `_meta["terminal-auth"]` object on the method (its handling of the stable `type: "terminal"` method sits behind a beta flag), and that object must name an executable itself; the method now carries it, pointing at the Node executable running the server and this package's own `bin.js --setup`, which holds for a global install, a Registry `npx` install, and a checkout alike, with `DSH_HOME` forwarded when the server was started with one. `session/new` also keeps re-reading an unconfigured key for one second before answering `auth_required`, so the retry Zed issues the instant the setup terminal exits sees the key the credential provider's watcher loads about 100 ms after the write. The launcher now also exits on its own when the client closes its stdin; previously the composition's file watchers kept the process alive until a signal arrived.
