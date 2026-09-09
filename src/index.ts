@@ -8,6 +8,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import Schema from '@deepseek-ai/schemastery'
@@ -19,6 +20,7 @@ import {
   RequestError,
   type AgentConnection,
   type AnyMessage,
+  type AuthMethod,
   type AuthenticateRequest,
   type AvailableCommand,
   type CancelNotification,
@@ -99,6 +101,38 @@ import {
   McpConfigError,
   type SessionMcpHandle,
 } from './mcp.js'
+
+/** Registry id, executable name, and ACP agent name are one identifier. */
+const AGENT_NAME = 'dsh-acp-interactive'
+const PACKAGE_VERSION = (JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string }).version
+
+/**
+ * One `deepseek-api-key` method is always advertised. Clients that declare
+ * terminal authentication (stable `auth.terminal` or the Registry's legacy
+ * `_meta["terminal-auth"]` flag) get the `--setup` terminal method; other
+ * clients get an agent-type entry carrying the same instructions, so a client
+ * never sees an empty list and mistakes it for "no authentication needed".
+ */
+function authMethodsFor(capabilities: InitializeRequest['clientCapabilities']): AuthMethod[] {
+  const terminal = capabilities?.auth?.terminal === true
+    || capabilities?._meta?.['terminal-auth'] === true
+  if (terminal) {
+    return [{
+      id: 'deepseek-api-key',
+      name: 'Configure DeepSeek API key',
+      description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
+      type: 'terminal',
+      args: ['--setup'],
+    }]
+  }
+  return [{
+    id: 'deepseek-api-key',
+    name: 'Configure DeepSeek API key',
+    description: 'Run `dsh-acp-interactive --setup` in a terminal to store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store, or set DEEPSEEK_API_KEY in the environment.',
+  }]
+}
 
 export const name = 'acp-interactive'
 /** Interactive UI registries; concrete model, skill, and tool providers remain composition choices. */
@@ -727,7 +761,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
           && params.clientCapabilities.session.configOptions.boolean !== null
         return Promise.resolve({
           protocolVersion: PROTOCOL_VERSION,
-          agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.3' },
+          agentInfo: { name: AGENT_NAME, version: PACKAGE_VERSION },
           agentCapabilities: {
             loadSession: true,
             promptCapabilities: { image: imagePromptEnabled, audio: false, embeddedContext: false },
@@ -738,18 +772,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
               close: {},
             },
           },
-          authMethods: (
-            params.clientCapabilities?.auth?.terminal === true
-            || params.clientCapabilities?._meta?.['terminal-auth'] === true
-          )
-            ? [{
-                id: 'deepseek-api-key',
-                name: 'Configure DeepSeek API key',
-                description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
-                type: 'terminal',
-                args: ['--setup'],
-              }]
-            : [],
+          authMethods: authMethodsFor(params.clientCapabilities),
         })
       },
 
@@ -1151,7 +1174,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     Readable.toWeb(process.stdin) as ReadableStream<Uint8Array>,
   )
   const handlers = makeAgent()
-  const app = agent({ name: 'deepseek-harness-interactive-acp' })
+  const app = agent({ name: AGENT_NAME })
     .onRequest(methods.agent.initialize, ({ params }) => handlers.initialize(params))
     .onRequest(methods.agent.authenticate, ({ params }) => handlers.authenticate(params))
     .onRequest(methods.agent.session.new, ({ params, signal }) => handlers.newSession(params, signal))

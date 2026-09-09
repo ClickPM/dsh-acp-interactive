@@ -132,7 +132,7 @@ README badges report npm version, CI, and license status only to the extent the 
 
 Maintain a versioned `clientCapabilities` fixture from supported Zed source or a captured handshake. The real packaged launcher verifies at least:
 
-- conditional terminal-auth advertisement;
+- terminal-auth advertisement negotiated by client capability, with the agent-type fallback method;
 - prompt modality, MCP, and session-lifecycle capabilities;
 - message IDs and request cancellation;
 - model, reasoning, and permission configuration;

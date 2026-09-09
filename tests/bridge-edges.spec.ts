@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -18,6 +19,10 @@ import {
   textResponse,
   type BridgeHarness,
 } from './harness.js'
+
+const packageVersion = (JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string }).version
 
 async function initialize(harness: BridgeHarness, terminal = false): Promise<void> {
   await harness.client.initialize({
@@ -70,7 +75,7 @@ describe('interactive ACP bridge edges', () => {
     })
     expect(response).toMatchObject({
       protocolVersion: PROTOCOL_VERSION,
-      agentInfo: { name: 'deepseek-harness-interactive-acp', version: '1.0.3' },
+      agentInfo: { name: 'dsh-acp-interactive', version: packageVersion },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
     expect(response.authMethods).toEqual([{
@@ -88,7 +93,14 @@ describe('interactive ACP bridge edges', () => {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: {},
       })
-      expect(blankResponse.authMethods).toEqual([])
+      // No terminal-auth capability: the same method is offered as a plain
+      // agent-type entry so the client never sees an empty list.
+      expect(blankResponse.authMethods).toEqual([{
+        id: 'deepseek-api-key',
+        name: 'Configure DeepSeek API key',
+        description: 'Run `dsh-acp-interactive --setup` in a terminal to store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store, or set DEEPSEEK_API_KEY in the environment.',
+      }])
+      await expect(blank.client.authenticate({ methodId: 'deepseek-api-key' })).resolves.toEqual({})
       const { sessionId } = await blank.client.newSession({ cwd: process.cwd(), mcpServers: [] })
       expect(blank.ctx.agents.get(SessionId(sessionId))?.options).toEqual({})
     } finally {

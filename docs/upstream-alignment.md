@@ -132,7 +132,7 @@ README 应公开显示 npm version、CI 和许可证状态，但 badge 只能代
 
 从受支持 Zed 版本的源码或捕获握手中维护版本化 `clientCapabilities` fixture。真实打包 launcher 至少验证：
 
-- terminal auth 的条件公布；
+- 按客户端能力协商的 terminal auth 公布，以及 agent 类型回退方法；
 - prompt modality、MCP 和 session lifecycle capability；
 - message ID 与 request cancellation；
 - model、reasoning 和 permission config；

@@ -44,3 +44,11 @@ directory and credential file on POSIX. This is not isolation from another
 process running as the same OS user, including an agent tool deliberately
 reading the known path; that limitation remains owned and documented by
 `dsh-credentials-local`.
+
+## Update 2026-09-09
+
+The "only when the client declares terminal authentication" rule now applies
+to the `terminal` *shape* of the method, not to its presence: clients without
+the capability receive the same `deepseek-api-key` method as an agent-type
+entry whose description names `--setup`. See
+[Auth Method Fallback and Registry Id](2026-09-09-auth-method-fallback-and-registry-id.md).
