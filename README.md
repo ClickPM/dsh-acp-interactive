@@ -20,12 +20,12 @@ npm install --global deepseekharness-acp-interactive
 dsh-acp-interactive --setup
 ```
 
-`--setup` stores `DEEPSEEK_API_KEY` through the Harness credential store without echoing it. Then register the installed command in Zed's `settings.json`; on Windows use the absolute path printed by `where.exe dsh-acp-interactive`:
+`--setup` stores `DEEPSEEK_API_KEY` through the Harness credential store without echoing it. Then register the installed command in Zed's `settings.json` (open via `Ctrl+Shift+P` / `Cmd+Shift+P` and type `zed: open settings`); on Windows use the absolute path printed by `where.exe dsh-acp-interactive` (using forward slashes `/` or double backslashes `\\`), on macOS / Linux use `which dsh-acp-interactive`:
 
 ```json
 {
   "agent_servers": {
-    "DeepSeek Harness": {
+    "dsh-acp-interactive": {
       "type": "custom",
       "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
       "args": []
@@ -34,7 +34,7 @@ dsh-acp-interactive --setup
 }
 ```
 
-Every ACP client sees a `Configure DeepSeek API key` authentication method: clients with terminal authentication, including Zed, open the same `--setup` flow from it, and other clients get its instructions as an agent-type method. See [Running with Zed](#running-with-zed) for details.
+After saving, open Zed's Agent panel (`Ctrl+?` / `Cmd+?`) and select `dsh-acp-interactive` from the dropdown list at the top to enable it. Every ACP client sees a `Configure DeepSeek API key` authentication method: clients with terminal authentication, including Zed, open the same `--setup` flow from it, and other clients get its instructions as an agent-type method. See [Running with Zed](#running-with-zed) for details.
 
 ## In Zed
 
@@ -218,12 +218,12 @@ The Zed terminal extension is capability-gated. When the client advertises `_met
 
 ## Running with Zed
 
-After installation, register the installed command directly in Zed. On Windows, `where.exe dsh-acp-interactive` prints its absolute path:
+After installation, register the installed command directly in Zed's `settings.json`. On Windows, `where.exe dsh-acp-interactive` prints its absolute path; on macOS / Linux, use `which dsh-acp-interactive`:
 
 ```json
 {
   "agent_servers": {
-    "DeepSeek Harness": {
+    "dsh-acp-interactive": {
       "type": "custom",
       "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
       "args": []
@@ -232,7 +232,7 @@ After installation, register the installed command directly in Zed. On Windows, 
 }
 ```
 
-Zed starts the server with the workspace as cwd. JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index. Multiple editor processes can share the JSONL source of truth without contending for the derived index. No DeepSeek Harness checkout or DeepSeek-specific Zed code is required.
+After saving, select `dsh-acp-interactive` in the agent picker. Zed starts the server with the workspace as cwd. JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index. Multiple editor processes can share the JSONL source of truth without contending for the derived index. No DeepSeek Harness checkout or DeepSeek-specific Zed code is required.
 
 See the [Zed compatibility matrix](docs/compatibility.en.md) for supported versions and verification status. This release uses the stable ACP v1 schema from SDK `1.4.0` as its baseline.
 

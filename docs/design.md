@@ -126,7 +126,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 ```json
 {
   "agent_servers": {
-    "DeepSeek Harness": {
+    "dsh-acp-interactive": {
       "type": "custom",
       "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
       "args": []

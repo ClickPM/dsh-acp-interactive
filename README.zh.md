@@ -20,12 +20,12 @@ npm install --global deepseekharness-acp-interactive
 dsh-acp-interactive --setup
 ```
 
-`--setup` 通过 Harness 凭据存储保存 `DEEPSEEK_API_KEY`，不会回显。然后在 Zed 的 `settings.json` 中登记已安装的命令；Windows 上使用 `where.exe dsh-acp-interactive` 打印的绝对路径：
+`--setup` 通过 Harness 凭据存储保存 `DEEPSEEK_API_KEY`，不会回显。然后在 Zed 的 `settings.json`（按 `Ctrl+Shift+P` / `Cmd+Shift+P` 输入 `zed: open settings` 打开）中登记已安装的命令；Windows 上使用 `where.exe dsh-acp-interactive` 打印的绝对路径（注意使用正斜杠 `/` 或双反斜杠 `\\`），macOS / Linux 上使用 `which dsh-acp-interactive`：
 
 ```json
 {
   "agent_servers": {
-    "DeepSeek Harness": {
+    "dsh-acp-interactive": {
       "type": "custom",
       "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
       "args": []
@@ -34,7 +34,7 @@ dsh-acp-interactive --setup
 }
 ```
 
-每个 ACP 客户端都会看到 `Configure DeepSeek API key` 认证方法：支持 terminal authentication 的客户端（包括 Zed）从中打开同一个 `--setup` 流程，其他客户端则以 agent 类型方法收到同样的说明。详见[在 Zed 中运行](#在-zed-中运行)。
+保存后，在 Zed 的 Agent 面板（快捷键 `Ctrl+?` / `Cmd+?`）顶部的 Agent 下拉列表中选择 `dsh-acp-interactive` 即可启用。每个 ACP 客户端都会看到 `Configure DeepSeek API key` 认证方法：支持 terminal authentication 的客户端（包括 Zed）从中打开同一个 `--setup` 流程，其他客户端则以 agent 类型方法收到同样的说明。详见[在 Zed 中运行](#在-zed-中运行)。
 
 ## 在 Zed 中的样子
 
@@ -210,12 +210,12 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 
 ## 在 Zed 中运行
 
-安装后，在 Zed 中直接登记随包安装的命令。Windows 可用 `where.exe dsh-acp-interactive` 确认绝对路径：
+安装后，在 Zed 的 `settings.json` 中直接登记随包安装的命令。Windows 可用 `where.exe dsh-acp-interactive` 确认绝对路径，macOS / Linux 可用 `which dsh-acp-interactive`：
 
 ```json
 {
   "agent_servers": {
-    "DeepSeek Harness": {
+    "dsh-acp-interactive": {
       "type": "custom",
       "command": "C:/Users/you/AppData/Roaming/npm/dsh-acp-interactive.cmd",
       "args": []
@@ -224,7 +224,7 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 }
 ```
 
-Zed 会以当前工作区作为 server cwd；JSONL session 存在该工作区的 `.sessions`，每个 server 进程使用独立的内存 SQLite session-query 索引。多个编辑器进程可以共享 JSONL 真源而不会争用派生索引。无需 DeepSeek Harness checkout，也无需 Zed 编写 DeepSeek 专用代码。
+保存配置后，在 Zed Agent 面板顶部的 Agent 下拉列表中选择 `dsh-acp-interactive` 即可启用。Zed 会以当前工作区作为 server cwd；JSONL session 存在该工作区的 `.sessions`，每个 server 进程使用独立的内存 SQLite session-query 索引。多个编辑器进程可以共享 JSONL 真源而不会争用派生索引。无需 DeepSeek Harness checkout，也无需 Zed 编写 DeepSeek 专用代码。
 
 受支持版本与能力验证状态见 [Zed 兼容矩阵](docs/compatibility.md)。当前发布以 ACP SDK `1.4.0` 的稳定 v1 schema 为基线。
 
