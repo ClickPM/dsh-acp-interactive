@@ -25,6 +25,8 @@ export const CREDENTIALS_READY_TIMEOUT_MS = 10_000
 
 type CredentialsLookup = Pick<Context, 'get'>
 type Credentials = Pick<CredentialProvider, 'describe'>
+/** The slice of the plugin context the gate reads: service lookup and the provider directory. */
+export type GateContext = CredentialsLookup & { llm: { listProviders(): ReadonlyArray<{ id: string }> } }
 
 /**
  * One `deepseek-api-key` method is always advertised. Clients that declare
@@ -81,15 +83,20 @@ async function activeCredentials(
  * prompt. The check reads `describe()`, never the value, and re-reads per
  * call so a key stored by `--setup` is seen by the next `session/new`.
  * Deployments that select another default provider are not gated: the
- * transport cannot know which credential that route needs.
+ * transport cannot know which credential that route needs. Nor is a
+ * deployment whose model directory offers other providers, for example
+ * `llm-pi-ai` routes from `settings.yaml`: the user may hold credentials for
+ * those routes and switch to them, and a missing DeepSeek key then fails only
+ * when the DeepSeek route is actually used.
  */
 export async function assertSessionCredential(
-  ctx: CredentialsLookup,
+  ctx: GateContext,
   config: { provider?: string },
   signal?: AbortSignal,
   readyTimeoutMs = CREDENTIALS_READY_TIMEOUT_MS,
 ): Promise<void> {
   if (config.provider !== DEEPSEEK_PROVIDER) return
+  if (ctx.llm.listProviders().some(provider => provider.id !== DEEPSEEK_PROVIDER)) return
   const credentials = await activeCredentials(ctx, signal, readyTimeoutMs)
   if (credentials === undefined) return
   const info = await credentials.describe(DEEPSEEK_API_KEY)

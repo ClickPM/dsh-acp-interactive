@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { assertSessionCredential, authMethodsFor } from '../src/auth.js'
 
-/** A context whose strict lookup turns positive after `activeAfter` polls. */
-function lookup(configured: boolean, activeAfter: number, composed = true) {
+/** A gate context whose strict lookup turns positive after `activeAfter` polls. */
+function lookup(configured: boolean, activeAfter: number, composed = true, providers = ['deepseek-official']) {
   let strictCalls = 0
   const service = { describe: () => Promise.resolve({ configured, writable: true }) }
   return {
@@ -12,6 +12,7 @@ function lookup(configured: boolean, activeAfter: number, composed = true) {
       strictCalls += 1
       return strictCalls > activeAfter ? service : undefined
     },
+    llm: { listProviders: () => providers.map(id => ({ id })) },
     calls: () => strictCalls,
   }
 }
@@ -54,5 +55,11 @@ describe('DeepSeek credential gate', () => {
     const other = lookup(false, 0)
     await expect(assertSessionCredential(other, { provider: 'mock' })).resolves.toBeUndefined()
     expect(other.calls()).toBe(0)
+  })
+
+  it('does not gate a directory that offers other providers', async () => {
+    const routes = lookup(false, 0, true, ['deepseek-official', 'local-probe'])
+    await expect(assertSessionCredential(routes, { provider: 'deepseek-official' })).resolves.toBeUndefined()
+    expect(routes.calls()).toBe(0)
   })
 })

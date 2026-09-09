@@ -95,6 +95,14 @@ serves the in-memory snapshot, so a key written while the server runs is
 seen after the provider's debounced watcher reloads it (about 100 ms), which
 is well inside the human round trip of a terminal login.
 
+A third condition (1.0.7) keeps the gate from trapping multi-provider users:
+it applies only while `ctx.llm.listProviders()` lists no provider other than
+`deepseek-official`. A `settings.yaml` that adds `llm-pi-ai` routes means the
+user may hold credentials for those routes and switch the session to them;
+blocking `session/new` on the DeepSeek key would make that impossible, since
+clients offer no way past the authentication panel. A fresh installation has
+only the DeepSeek route and still gets the prompt.
+
 Real-launcher tests that create sessions on the default route now run with
 `DEEPSEEK_API_KEY` set; a dedicated launcher test covers the gate,
 `authenticate`, and the pickup of a key stored afterwards, and unit tests

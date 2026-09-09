@@ -249,6 +249,7 @@ export interface BridgeHarness {
 export async function makeHarness(
   script: Array<StreamChunk[] | 'hang'>,
   config: Omit<InteractiveAcp.AcpInteractiveConfig, 'stream'> = { provider: 'mock', model: 'mock' },
+  providers: string[] = ['mock'],
 ): Promise<BridgeHarness> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: '' } })
@@ -260,7 +261,7 @@ export async function makeHarness(
   await ctx.plugin(toolSkill)
   const loopFiber = await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new MockAdapter(script)
-  ctx.llm.registerAdapter(['mock'], adapter)
+  ctx.llm.registerAdapter(providers, adapter)
 
   const agentToClient = new TransformStream<Uint8Array, Uint8Array>()
   const clientToAgent = new TransformStream<Uint8Array, Uint8Array>()

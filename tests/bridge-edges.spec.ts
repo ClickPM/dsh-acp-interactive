@@ -127,10 +127,9 @@ describe('interactive ACP bridge edges', () => {
     let configured = false
     const credentials = { describe: () => Promise.resolve({ configured, writable: true }) }
 
-    // The official route without a key fails with auth_required before any agent exists.
-    harness = await makeHarness([], { provider: 'deepseek-official', model: 'mock' })
+    // The official route as the only provider, without a key: auth_required before any agent exists.
+    harness = await makeHarness([], { provider: 'deepseek-official', model: 'mock' }, ['deepseek-official'])
     harness.ctx.provide('credentials', credentials)
-    harness.ctx.llm.registerAdapter(['deepseek-official'], harness.adapter)
     await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
     await expect(harness.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
       .rejects.toMatchObject({ code: -32000, message: expect.stringContaining('--setup') })
@@ -153,14 +152,24 @@ describe('interactive ACP bridge edges', () => {
     }
 
     // Without a composed credentials service the transport does not guess.
-    const bare = await makeHarness([], { provider: 'deepseek-official', model: 'mock' })
+    const bare = await makeHarness([], { provider: 'deepseek-official', model: 'mock' }, ['deepseek-official'])
     try {
-      bare.ctx.llm.registerAdapter(['deepseek-official'], bare.adapter)
       await bare.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
       await expect(bare.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
         .resolves.toMatchObject({ sessionId: expect.any(String) })
     } finally {
       await bare.dispose()
+    }
+
+    // A directory with other providers is not gated on the DeepSeek key either.
+    const routes = await makeHarness([], { provider: 'deepseek-official', model: 'mock' }, ['deepseek-official', 'mock'])
+    try {
+      routes.ctx.provide('credentials', { describe: () => Promise.resolve({ configured: false, writable: true }) })
+      await routes.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+      await expect(routes.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
+        .resolves.toMatchObject({ sessionId: expect.any(String) })
+    } finally {
+      await routes.dispose()
     }
   })
 
