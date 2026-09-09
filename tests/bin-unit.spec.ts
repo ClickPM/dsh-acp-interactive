@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   loadLayeredEnv: vi.fn(),
   provide: vi.fn(),
   launchEnvironmentKey: Symbol('launch-environment'),
+  /** Callbacks the launcher hands to stream.finished(process.stdin, ...). */
+  stdinFinished: [] as Array<() => void>,
 }))
 
 vi.mock('@deepseek-ai/dsh-app-boot', () => ({
@@ -17,6 +19,18 @@ vi.mock('@deepseek-ai/dsh-app-boot', () => ({
   installFailLoud: mocks.installFailLoud,
   loadLayeredEnv: mocks.loadLayeredEnv,
 }))
+
+vi.mock('node:stream', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:stream')>()
+  return {
+    ...actual,
+    finished: (stream: unknown, callback: () => void) => {
+      if (stream === process.stdin) mocks.stdinFinished.push(callback)
+      else actual.finished(stream as NodeJS.ReadableStream, callback)
+      return () => {}
+    },
+  }
+})
 
 vi.mock('@deepseek-ai/dsh-launch-environment', () => ({
   DSH_LAUNCH_ENVIRONMENT_KEY: mocks.launchEnvironmentKey,
@@ -56,4 +70,11 @@ it('boots the package config and disposes on both supported process signals', as
   listeners.get('SIGINT')?.()
   await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(130) })
   expect(mocks.dispose).toHaveBeenCalledTimes(2)
+
+  // The client closing our stdin ends the process the same way.
+  expect(mocks.stdinFinished).toHaveLength(1)
+  exit.mockClear()
+  mocks.stdinFinished[0]?.()
+  await vi.waitFor(() => { expect(exit).toHaveBeenCalledWith(0) })
+  expect(mocks.dispose).toHaveBeenCalledTimes(3)
 })

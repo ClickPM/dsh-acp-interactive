@@ -74,3 +74,47 @@ it('returns auth_required from session/new until DEEPSEEK_API_KEY is stored', as
     await new Promise<void>(resolve => child.once('close', () => resolve()))
   }
 })
+
+it('exits on its own when the client closes stdin', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-stdin-close-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  await mkdir(home, { mode: 0o700 })
+  const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_ACP_SESSIONS_ROOT: join(root, 'sessions'),
+      DEEPSEEK_API_KEY: 'sk-close-test',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  const stderr: string[] = []
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => stderr.push(String(chunk)))
+  const exited = new Promise<number | null>(resolve => child.once('close', code => resolve(code)))
+  const client = new ClientSideConnection((_agent: Agent): Client => ({
+    sessionUpdate: async () => {},
+    requestPermission: async () => ({ outcome: { outcome: 'cancelled' } }),
+  }), ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+  ))
+  try {
+    await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    child.stdin.end()
+    const code = await Promise.race([
+      exited,
+      new Promise<'still running'>(resolve => setTimeout(() => resolve('still running'), 15_000)),
+    ])
+    expect(code).toBe(0)
+  } catch (error: unknown) {
+    throw new Error(`${String(error)}\nstderr:\n${stderr.join('')}`)
+  } finally {
+    if (child.exitCode === null) {
+      child.kill('SIGTERM')
+      await exited
+    }
+  }
+})
