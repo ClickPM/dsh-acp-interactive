@@ -9,3 +9,4 @@ lib/
 SHA256SUMS.txt
 .harness-tests/
 coverage/
+.venv/
