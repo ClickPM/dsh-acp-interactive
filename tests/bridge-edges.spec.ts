@@ -3,13 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import {
-  CallId,
+  ToolCallId,
   createAssistantMessage,
   createToolResultMessage,
   createUserMessage,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import {
@@ -49,11 +49,11 @@ function emitOwned(harness: BridgeHarness, agent: Agent, event: SessionEvent): v
 function toolCallResponse(): StreamChunk[] {
   return [
     { type: 'block-start', index: 0, blockType: 'tool-call' },
-    { type: 'tool-call-delta', index: 0, id: CallId('call-1'), name: 'echo', argumentsDelta: '{"text":"hi"}' },
+    { type: 'tool-call-delta', index: 0, id: ToolCallId('call-1'), name: 'echo', argumentsDelta: '{"text":"hi"}' },
     {
       type: 'block-end',
       index: 0,
-      block: { type: 'tool-call', id: CallId('call-1'), name: 'echo', arguments: '{"text":"hi"}' },
+      block: { type: 'tool-call', id: ToolCallId('call-1'), name: 'echo', arguments: '{"text":"hi"}' },
     },
     { type: 'finish', reason: { kind: 'tool-calls' } },
   ]
@@ -323,7 +323,7 @@ describe('interactive ACP bridge edges', () => {
     const sessionId = await newSession(harness)
     const agent = ownedAgent(harness, sessionId)
     agent.session.append('turn/start', { turn: 1 })
-    const request: ApprovalRequest = { agent, toolName: 'bash', callId: CallId('call-1') }
+    const request: ApprovalRequest = { agent, toolName: 'bash', callId: ToolCallId('call-1') }
     harness.onPermission = () => ({ outcome: { outcome: 'cancelled' } })
     await expect(harness.ctx.approval.request(request)).resolves.toBe('cancelled')
     harness.onPermission = () => ({ outcome: { outcome: 'selected', optionId: 'unknown' } })
@@ -332,7 +332,7 @@ describe('interactive ACP bridge edges', () => {
     const foreign = { session: agent.session } as unknown as Agent
     const before = harness.permissionRequests.length
     await expect(harness.ctx.waterfall('approval/request', {
-      agent: foreign, toolName: 'bash', callId: CallId('foreign'),
+      agent: foreign, toolName: 'bash', callId: ToolCallId('foreign'),
     }, () => Promise.resolve('unavailable' as const))).resolves.toBe('unavailable')
     await expect(harness.ctx.waterfall('approval/request', {
       agent, toolName: 'bash',
@@ -375,11 +375,11 @@ describe('interactive ACP bridge edges', () => {
     const sessionId = await newSession(harness)
     const agent = ownedAgent(harness, sessionId)
     emitOwned(harness, agent, {
-      type: 'tool/call', seq: 1, time: 1,
-      data: { turn: 1, step: 1, callId: CallId('broken'), name: 'broken-card', arguments: '{}' },
+      type: 'tool/call', seq: SessionSeq(0), time: 1,
+      data: { turn: 1, step: 1, callId: ToolCallId('broken'), name: 'broken-card', arguments: '{}' },
     })
     emitOwned(harness, agent, {
-      type: 'tool/result', seq: 2, time: 2, surfaceOp: 'append',
+      type: 'tool/result', seq: SessionSeq(1), time: 2, surfaceOp: 'append',
       data: { turn: 1, step: 1, message: { content: [] } as never },
     })
     await vi.waitFor(() => {
@@ -394,11 +394,11 @@ describe('interactive ACP bridge edges', () => {
     const agent = ownedAgent(harness, sessionId)
     const foreign = Session.create(SessionId('foreign'))
     emitOwned(harness, agent, {
-      type: 'assistant/chunk', seq: 1, time: 1,
+      type: 'assistant/chunk', seq: SessionSeq(0), time: 1,
       data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } },
     })
     emitOwned(harness, agent, {
-      type: 'assistant/message', seq: 2, time: 2, surfaceOp: 'append',
+      type: 'assistant/message', seq: SessionSeq(1), time: 2, surfaceOp: 'append',
       data: {
         turn: 1,
         step: 1,
@@ -406,21 +406,21 @@ describe('interactive ACP bridge edges', () => {
       },
     })
     const usageEvent: SessionEvent = {
-      type: 'assistant/chunk', seq: 3, time: 3,
+      type: 'assistant/chunk', seq: SessionSeq(2), time: 3,
       data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 2, outputTokens: 3 } } },
     }
     emitOwned(harness, agent, usageEvent)
     emitOwned(harness, agent, {
-      type: 'request/context', seq: 4, time: 4,
+      type: 'request/context', seq: SessionSeq(3), time: 4,
       data: { provider: 'mock', model: 'mock' },
     })
     emitOwned(harness, agent, {
-      type: 'request/context', seq: 5, time: 5,
+      type: 'request/context', seq: SessionSeq(4), time: 5,
       data: { provider: 'mock', model: 'mock', contextWindow: 100 },
     })
     emitOwned(harness, agent, usageEvent)
     emitOwned(harness, agent, {
-      type: 'assistant/message', seq: 6, time: 6, surfaceOp: 'append',
+      type: 'assistant/message', seq: SessionSeq(5), time: 6, surfaceOp: 'append',
       data: {
         turn: 1,
         step: 2,
@@ -429,15 +429,15 @@ describe('interactive ACP bridge edges', () => {
       },
     })
     emitOwned(harness, agent, {
-      type: 'tool/result', seq: 7, time: 7, surfaceOp: { op: 'replace', start: 1, end: 1 },
+      type: 'tool/result', seq: SessionSeq(6), time: 7, surfaceOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(0) },
       data: {
         turn: 1,
         step: 1,
-        message: createToolResultMessage({ callId: CallId('ignored'), content: [{ type: 'text', text: 'x' }], isError: false }),
+        message: createToolResultMessage({ callId: ToolCallId('ignored'), content: [{ type: 'text', text: 'x' }], isError: false }),
       },
     })
     harness.ctx.emit('session/event', foreign, {
-      type: 'todo/write', seq: 0, time: 0, data: { todos: [{ content: 'foreign', status: 'pending' }] },
+      type: 'todo/write', seq: SessionSeq(0), time: 0, data: { todos: [{ content: 'foreign', status: 'pending' }] },
     })
     await vi.waitFor(() => {
       expect(harness!.updates.some(item => item.update.sessionUpdate === 'usage_update')).toBe(true)

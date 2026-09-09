@@ -169,7 +169,7 @@ describe('session-scoped MCP lifecycle', () => {
         content: [{ type: 'content', content: { type: 'text', text: 'one:hello' } }],
       }),
     }))
-    const log = JSON.stringify(agent.session.events)
+    const log = JSON.stringify(agent.session.snapshotEvents())
     expect(log).not.toContain('MCP_SESSION_MARKER')
     expect(log).not.toContain(lifecycle)
 
@@ -270,7 +270,7 @@ describe('session-scoped MCP lifecycle', () => {
     })
     expect(seen.length).toBeGreaterThan(0)
     expect(seen.every(value => value === 'Bearer private')).toBe(true)
-    expect(JSON.stringify(harness.ctx.agents.get(SessionId(created.sessionId))!.session.events)).not.toContain('Bearer private')
+    expect(JSON.stringify(harness.ctx.agents.get(SessionId(created.sessionId))!.session.snapshotEvents())).not.toContain('Bearer private')
     await harness.client.closeSession({ sessionId: created.sessionId })
     const httpFailure = await harness.client.newSession({
       cwd: process.cwd(),
@@ -289,7 +289,7 @@ describe('session-scoped MCP lifecycle', () => {
     const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [stdio('old')] })
     const source = harness.ctx.agents.get(SessionId(created.sessionId))!
     harness.persisted.set(SessionId(created.sessionId), {
-      meta: structuredClone(source.session.header), events: structuredClone(source.session.events),
+      meta: structuredClone(source.session.header), events: structuredClone(source.session.snapshotEvents()),
     })
     await harness.client.closeSession({ sessionId: created.sessionId })
 
@@ -394,7 +394,7 @@ describe('session-scoped MCP lifecycle', () => {
     const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
     const source = harness.ctx.agents.get(SessionId(created.sessionId))!
     harness.persisted.set(SessionId(created.sessionId), {
-      meta: structuredClone(source.session.header), events: structuredClone(source.session.events),
+      meta: structuredClone(source.session.header), events: structuredClone(source.session.snapshotEvents()),
     })
     await harness.client.closeSession({ sessionId: created.sessionId })
 

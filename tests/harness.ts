@@ -27,8 +27,14 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
-import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
-import SessionPersistence, { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
+import { SessionLogOffset, type SessionEvent, type SessionHeader, type SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SessionPersistence, {
+  SessionPersistenceRevision,
+  type BorrowedSessionSource,
+  type SessionEventSuffix,
+  type SessionInspection,
+} from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryEngine, {
   type SessionEventSearchPage,
   type SessionEventSearchRequest,
@@ -61,6 +67,12 @@ interface PersistedEntry {
   events: readonly SessionEvent[]
 }
 
+/**
+ * This fixture stores no fork-seeded sessions, so every logical log it returns
+ * starts at offset zero.
+ */
+const NO_INHERITED_EVENTS = SessionLogOffset(0)
+
 class HarnessPersistence extends SessionPersistence {
   override readonly supportsRawArtifacts = false
   static inject = ['sessions']
@@ -85,24 +97,42 @@ class HarnessPersistence extends SessionPersistence {
     return Promise.resolve()
   }
 
-  load(id: SessionId): Promise<PersistedEntry> {
+  load(id: SessionId): Promise<SessionInspection> {
     return this.inspect(id)
   }
 
-  inspect(id: SessionId, signal?: AbortSignal): Promise<PersistedEntry> {
+  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
     signal?.throwIfAborted()
     const entry = this.entries.get(id)
     if (entry === undefined) return Promise.reject(new Error(`missing persisted session: ${id}`))
-    return Promise.resolve(structuredClone(entry))
+    const clone = structuredClone(entry)
+    return Promise.resolve({
+      meta: clone.meta,
+      events: clone.events,
+      inheritedEventCount: NO_INHERITED_EVENTS,
+    })
+  }
+
+  async borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
+    const inspection = await this.inspect(id, signal)
+    // No prepared Session is pinned: this fixture always materializes a
+    // detached observation, so the borrow reports a live source and its
+    // disposal releases nothing.
+    return { source: 'live', inspection, [Symbol.dispose]: () => {} }
   }
 
   async readFrom(
     id: SessionId,
-    fromSeq: number,
+    fromSeq: SessionLogOffset,
     signal?: AbortSignal,
-  ): Promise<{ meta: SessionHeader; events: SessionEvent[] }> {
-    const entry = await this.inspect(id, signal)
-    return { meta: entry.meta, events: entry.events.filter(event => event.seq >= fromSeq) }
+  ): Promise<SessionEventSuffix> {
+    const inspection = await this.inspect(id, signal)
+    return {
+      meta: inspection.meta,
+      inheritedEventCount: inspection.inheritedEventCount,
+      fromSeq,
+      events: inspection.events.filter(event => event.seq >= fromSeq),
+    }
   }
 
   list(signal?: AbortSignal): Promise<SessionHeader[]> {
@@ -253,6 +283,10 @@ export async function makeHarness(
 ): Promise<BridgeHarness> {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: '' } })
+  // The agent loop and the permission/approval services fold their state through
+  // registered projection units, so the registry is a required dependency of
+  // this composition rather than an optional extra.
+  await ctx.plugin(SessionProjectionRegistry)
   const persisted = new Map<SessionId, PersistedEntry>()
   await ctx.plugin(HarnessPersistence, persisted)
   await ctx.plugin(HarnessSessionQuery)

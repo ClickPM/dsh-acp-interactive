@@ -62,6 +62,14 @@ dsh-acp-interactive --setup
 
 ![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
 
+## 1.1.0
+
+`1.1.0` 将组合的 DeepSeek Harness 基线从 `0.1.1-rc.2` 移到 `0.1.2-rc.1`，公布的 ACP 能力面不变。
+
+上游删除了本部署原本以单行挂载的 `@deepseek-ai/dsh-agent-spine-demo` 示例包，改为由 launcher 在运行时解析的 bundle patch 分层。本版本不采用该机制，而是保持 `config/cordis.yml` 为单一、扁平、完全可审计的组合：原 bundle 的子插件现为 25 条显式插件行，集合与配置保持一致，使发行组合仍可与评审清单逐项比对。适配该版本同时需要跟进三项上游契约变更：`Session.snapshotEvents()` 取代被移除的 `events` 读面、权限预设改为通过 session projection 注册表读取状态、用户提问从 provider 注册改为按作用域过滤的 answerer waterfall。
+
+官方兼容测试门已修复并界定范围。它原先复制的测试路径在任何上游版本都不存在，因此一直在报 `fixture unavailable` 而从未真正运行，且会读取本地 checkout 恰好处于的任意版本；现在改为按 `config/upstream-baseline.json` 记录的固定 git ref 提取官方 spec。由于 `0.1.2-rc.1` 向本服务器的设计收敛但仍为 automation-only——仍未实现 `session/load`、slash 命令、skill、展示卡片和 elicitation——只有标记为 aligned 的 spec 会原样运行，其余官方 spec 逐个记录为附理由的显式分歧。当固定 ref 新增、移除或重命名 spec 时该门失败，使下一个上游版本进入评审而不是被静默跳过。参见 [Zed 兼容矩阵](docs/compatibility.md) 和 [Upstream 0.1.2-rc.1 Baseline Agent Note](docs/agent-notes/2026-09-09-upstream-0.1.2-rc.1-baseline.md)。
+
 ## 1.0.9
 
 `1.0.9` 让当前 route 为 DeepSeek 官方 provider 的 `session/prompt` 在 `DEEPSEEK_API_KEY` 未配置时返回 `auth_required`，不论模型目录里是否还有其他 provider。`1.0.7` 特意不再在多 provider 部署上拦 `session/new`，让这类用户能先开会话再切换路由，但此后在 DeepSeek 路由上提问会以内部模型调用错误失败；Zed 等客户端对来自 `session/prompt` 的 `auth_required` 同样会展示认证操作。直接的斜杠命令不经过模型，不做门控。
@@ -311,7 +319,7 @@ npm run check:registry
 npm run verify:packed
 ```
 
-独立仓库不在运行时依赖 DeepSeek Harness checkout。开发兼容性检查使用只读的官方 checkout：设置 `DSH_HARNESS_ROOT` 后运行 `npm run test:harness`，或在仓库旁放置 `../deepseek-harness`。该命令复制当前官方 `packages/acp/acp-interactive/tests` 到忽略的临时目录，并用本仓库 `src/` 执行。`check:profile` 对账当前官方 bundle/profile 中的候选包、人类命令、必要 provider 和关键 consumer，只报告需要评审的差异，不改写发布组合；`verify:packed` 从 tarball 在仓库外干净安装并启动真实 ACP launcher。`npm run test:all` 串联仓库、官方兼容和 profile 对账检查。
+独立仓库不在运行时依赖 DeepSeek Harness checkout。开发兼容性检查使用只读的官方 checkout：设置 `DSH_HARNESS_ROOT` 后运行 `npm run test:harness`，或在仓库旁放置 `../deepseek-harness`。该命令按 `config/upstream-baseline.json` 记录的固定 ref 提取官方 ACP spec（不读取 checkout 的工作树状态）到忽略的临时目录，并用本仓库 `src/` 执行其中标记为 aligned 的断言。本服务器公布的 ACP 能力多于官方 automation-only transport，因此其余官方 spec 逐个记录为显式分歧并附理由；运行时会打印这些分歧，且当固定 ref 新增、移除或重命名 spec 时失败，使变化进入评审而不是被静默跳过。`check:profile` 对账当前官方 bundle/profile 中的候选包、人类命令、必要 provider 和关键 consumer，只报告需要评审的差异，不改写发布组合；`verify:packed` 从 tarball 在仓库外干净安装并启动真实 ACP launcher。`npm run test:all` 串联仓库、官方兼容和 profile 对账检查。
 
 已实现范围见[设计说明](docs/design.md)，推荐开发顺序与各阶段验收条件见[后续开发路线图](docs/roadmap.md)。
 

@@ -7,7 +7,7 @@ import type {
   SaveImageAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
@@ -155,7 +155,7 @@ describe('interactive ACP bridge', () => {
     await expect(harness.ctx.approval.request({
       agent,
       toolName: 'bash',
-      callId: CallId('call-1'),
+      callId: ToolCallId('call-1'),
       signal: approvalController.signal,
     })).resolves.toBe('allowed-once')
     expect(harness.permissionRequests).toEqual([{
@@ -318,9 +318,12 @@ describe('interactive ACP bridge', () => {
       sessionId: created.sessionId,
       requestedSchema: { required: [] },
     })
+    // A request carrying no owning agent is not claimed by this connection's
+    // answerer, so the user-questions service reports its terminal NO_PROVIDER
+    // rather than an ACP-owned foreign-agent rejection.
     await expect(harness.ctx.userQuestions.ask({
       questions: [{ id: 'foreign', question: 'No owner?' }],
-    })).rejects.toMatchObject({ code: 'ASK_FOREIGN_AGENT' })
+    })).rejects.toMatchObject({ code: 'NO_PROVIDER' })
     await expect(harness.client.setSessionMode({ sessionId: created.sessionId, modeId: 'missing' }))
       .rejects.toThrow(/unknown session mode/)
   })
@@ -544,7 +547,7 @@ describe('interactive ACP bridge', () => {
     expect(requestContent?.[2]).toEqual({ type: 'text', text: 'this' })
     const agent = harness.ctx.agents.get(SessionId(sessionId))
     if (agent === undefined) throw new Error('missing bridge-owned agent')
-    const image = agent.session.events
+    const image = agent.session.snapshotEvents()
       .find(event => event.type === 'user/message')
       ?.data.content.find(block => block.type === 'image')
     if (image?.type !== 'image') throw new Error('missing durable image reference')
@@ -587,7 +590,7 @@ describe('interactive ACP bridge', () => {
     })
     harness.persisted.set(SessionId(sessionId), {
       meta: structuredClone(agent.session.header),
-      events: structuredClone(agent.session.events).filter(event => event.type !== 'assistant/message'
+      events: structuredClone(agent.session.snapshotEvents()).filter(event => event.type !== 'assistant/message'
         || event.data.message.id !== 'missing-assistant-image'),
     })
     await harness.client.closeSession({ sessionId })

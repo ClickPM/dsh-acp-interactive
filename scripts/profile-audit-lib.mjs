@@ -28,6 +28,16 @@ function visit(value, callback) {
   for (const child of Object.values(value)) visit(child, callback)
 }
 
+/**
+ * Reduce a bare plugin specifier to the package that must be installed for it.
+ * A subpath companion such as `@deepseek-ai/dsh-agent/invariant` ships inside its
+ * own package, so the dependency to declare and resolve is `@deepseek-ai/dsh-agent`.
+ */
+export function owningPackage(name) {
+  const segments = name.split('/')
+  return name.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0]
+}
+
 /** Return stable additions/removals between one frozen snapshot and observation. */
 export function diffSnapshot(expected, actual) {
   const expectedSet = new Set(expected)

@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-This matrix applies to `deepseekharness-acp-interactive 1.0.3`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
+This matrix applies to `deepseekharness-acp-interactive 1.1.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
 
 | Zed version | Status | Capability scope |
 | --- | --- | --- |
@@ -19,5 +19,18 @@ This matrix applies to `deepseekharness-acp-interactive 1.0.3`, stable ACP v1, a
 - Request-cancellation tests cancel one long prompt over a real NDJSON connection, prove that another session is unaffected, and then reuse both sessions.
 - Session-lifecycle coverage runs two real launchers concurrently with one shared JSONL source and separate in-memory SQLite derived indexes, proving immediate cross-process list/load/resume after close and non-destructive repeated close/restore.
 - The current composition has no real boolean domain option, so it displays no invented toggle even when Zed advertises support. Cost is likewise sent only when Harness supplies a trustworthy cumulative amount.
+
+## Pinned upstream baseline
+
+The composed Harness packages are pinned to `0.1.2-rc.1`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.1.2-rc.1` that `npm run test:harness` extracts its specs from.
+
+At that release the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. It remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
+
+That difference is why only the specs classified as aligned in `config/upstream-baseline.json` run verbatim. The rest are recorded as explicit divergences of two kinds:
+
+- `composition` — the official `tests/harness.ts` composes neither `commands`, `skills`, nor `sessionQuery`, which this server injects to serve slash commands, skills, and `session/load`. Its plugin fiber never activates in that harness, so those specs cannot execute here. Each is covered by this repository's own equivalent suite.
+- `internal-api` — the spec imports official private module names or modules introduced by the `0.1.2-rc.1` refactor (`src/model-control.ts`, `src/updates.ts`). The protocol behavior exists here under this repository's own decomposition.
+
+A recorded divergence is a reviewed statement, not a skip: the gate fails whenever the pinned ref adds, removes, or renames a spec, and reclassifying a spec purely to keep the gate green is prohibited.
 
 See Zed's [stable release notes](https://zed.dev/releases/stable) and its current [ACP client implementation](https://github.com/zed-industries/zed/blob/main/crates/agent_servers/src/acp.rs).

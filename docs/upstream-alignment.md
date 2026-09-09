@@ -221,4 +221,6 @@ fixture 必须记录来源 Zed 版本和 commit，升级 fixture 时评审 capab
 
 在恢复路线图中的新功能开发前，质量工作按 `Q0 → Q1 → Q2 → Q3 → Q4` 推进。Q0 只解决当前仍保留内容的来源与声明边界；Q1 建立公开证据；Q2 固定与观察上游；Q3 验证真实客户端；Q4 汇总为发行和 Registry 审核材料。除正确性、安全或上游兼容修复外，功能丰富度不应打断该顺序。
 
-截至 `1.0.4`：Q1 的跨平台 CI 矩阵、Q4 的 tag 驱动发布流程，以及保存在仓库内并由 Registry 自身校验脚本复查的 Registry 条目均已落地，见 [Public CI and Registry Evidence Agent Note](agent-notes/2026-09-09-public-ci-and-registry-evidence.md)。trusted publishing 的启用、Q0、Q2 和 Q3 仍待完成。
+截至 `1.0.4`：Q1 的跳平台 CI 矩阵、Q4 的 tag 驱动发布流程，以及保存在仓库内并由 Registry 自身校验脚本复查的 Registry 条目均已落地，见 [Public CI and Registry Evidence Agent Note](agent-notes/2026-09-09-public-ci-and-registry-evidence.md)。
+
+截至 `1.1.0`：Q2 的固定上游基线已落地。`config/upstream-baseline.json` 记录已评审的官方 ref，`npm run test:harness` 从该 ref 提取 spec 而不再读取 checkout 工作树，每个官方 spec 必须被分类为 aligned 或附理由的 divergent，未分类或消失的 spec 以 `fixture unavailable` 失败，见 [Upstream 0.1.2-rc.1 Baseline Agent Note](agent-notes/2026-09-09-upstream-0.1.2-rc.1-baseline.md)。trusted publishing 的启用、Q0、Q2 的最新上游定时观察和 Q3 仍待完成。

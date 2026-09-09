@@ -64,7 +64,7 @@ describe('interactive ACP persisted sessions', () => {
       messageSeqs: [],
       source: { kind: 'user' },
     })
-    const events = structuredClone(source.session.events)
+    const events = structuredClone(source.session.snapshotEvents())
     await harness.client.closeSession({ sessionId: sourceId })
 
     const older = SessionId('older-session')
@@ -141,7 +141,7 @@ describe('interactive ACP persisted sessions', () => {
     })
     harness.persisted.set(SessionId(sessionId), {
       meta: structuredClone(source.session.header),
-      events: structuredClone(source.session.events),
+      events: structuredClone(source.session.snapshotEvents()),
     })
     const persistedHeader = harness.persisted.get(SessionId(sessionId))?.events
       .find(event => event.type === 'request/header')
@@ -199,7 +199,7 @@ describe('interactive ACP persisted sessions', () => {
     if (source === undefined) throw new Error('missing source session')
     harness.persisted.set(SessionId(sessionId), {
       meta: structuredClone(source.session.header),
-      events: structuredClone(source.session.events),
+      events: structuredClone(source.session.snapshotEvents()),
     })
     await harness.client.closeSession({ sessionId })
     harness.updates.length = 0
@@ -282,11 +282,11 @@ describe('interactive ACP persisted sessions', () => {
     const loadId = SessionId('concurrent-load')
     const resumeId = SessionId('concurrent-resume')
     harness.persisted.set(loadId, {
-      meta: { version: 0, id: loadId, createdAt: 2, cwd },
+      meta: { version: 0, id: loadId, createdAt: 2, cwd, isSeeded: false },
       events: [],
     })
     harness.persisted.set(resumeId, {
-      meta: { version: 0, id: resumeId, createdAt: 1, cwd },
+      meta: { version: 0, id: resumeId, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
 
@@ -353,7 +353,7 @@ describe('interactive ACP persisted sessions', () => {
     const id = SessionId('slow-restore')
     const cwd = process.cwd()
     harness.persisted.set(id, {
-      meta: { version: 0, id, createdAt: 1, cwd },
+      meta: { version: 0, id, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
     const read = harness.ctx.sessionQuery.readSession.bind(harness.ctx.sessionQuery)
@@ -380,7 +380,7 @@ describe('interactive ACP persisted sessions', () => {
     const id = SessionId('disconnected-restore')
     const cwd = process.cwd()
     harness.persisted.set(id, {
-      meta: { version: 0, id, createdAt: 1, cwd },
+      meta: { version: 0, id, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
     const resume = harness.ctx.agents.resume.bind(harness.ctx.agents)
@@ -418,7 +418,7 @@ describe('interactive ACP persisted sessions', () => {
     await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'use a tool' }] })
     const source = harness.ctx.agents.get(SessionId(sessionId))
     if (source === undefined) throw new Error('missing source session')
-    const events = structuredClone(source.session.events)
+    const events = structuredClone(source.session.snapshotEvents())
     harness.persisted.set(SessionId(sessionId), { meta: structuredClone(source.session.header), events })
     await harness.client.closeSession({ sessionId })
     harness.updates.length = 0

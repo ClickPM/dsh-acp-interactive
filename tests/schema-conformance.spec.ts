@@ -129,7 +129,7 @@ describe('stable ACP v1 schema conformance', () => {
     if (source === undefined) throw new Error('missing source session')
     harness.persisted.set(SessionId(created.sessionId), {
       meta: structuredClone(source.session.header),
-      events: structuredClone(source.session.events),
+      events: structuredClone(source.session.snapshotEvents()),
     })
     await harness.client.closeSession({ sessionId: created.sessionId })
     harness.updates.length = 0

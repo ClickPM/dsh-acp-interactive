@@ -8,6 +8,7 @@ import {
   diffSnapshot,
   discoverHumanCommands,
   officialSnapshot,
+  owningPackage,
 } from './profile-audit-lib.mjs'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -17,8 +18,9 @@ const localPackages = compositionPackages(await readFile(resolve(repositoryRoot,
 
 const errors = []
 compare('editor composition', manifest.localCompositionPackages, localPackages)
+
 for (const name of localPackages) {
-  if (packageManifest.dependencies?.[name] === undefined) {
+  if (packageManifest.dependencies?.[owningPackage(name)] === undefined) {
     errors.push(`runtime dependency missing for bare plugin ${name}`)
   }
 }

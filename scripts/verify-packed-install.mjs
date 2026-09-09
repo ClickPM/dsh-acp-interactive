@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { compositionPackages } from './profile-audit-lib.mjs'
+import { compositionPackages, owningPackage } from './profile-audit-lib.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -58,7 +58,10 @@ try {
   ))
   const requireFromInstall = createRequire(join(installRoot, 'package.json'))
   for (const name of new Set([...packages, ...setupPackages])) {
-    requireFromInstall.resolve(`${name}/package.json`)
+    // Probe the owning package's manifest to prove the dependency installed, and
+    // the specifier itself to prove a subpath companion's export really exists.
+    requireFromInstall.resolve(`${owningPackage(name)}/package.json`)
+    requireFromInstall.resolve(name)
   }
   for (const name of [
     '@deepseek-ai/dsh-mcp-client',

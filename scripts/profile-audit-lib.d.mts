@@ -1,4 +1,5 @@
 export function compositionPackages(source: string): string[]
+export function owningPackage(name: string): string
 export function diffSnapshot(expected: string[], actual: string[]): { added: string[]; removed: string[] }
 export function officialSnapshot(
   packages: string[],

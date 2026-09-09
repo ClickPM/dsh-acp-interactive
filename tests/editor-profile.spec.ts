@@ -3,7 +3,12 @@
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { compositionPackages, diffSnapshot, officialSnapshot } from '../scripts/profile-audit-lib.mjs'
+import {
+  compositionPackages,
+  diffSnapshot,
+  officialSnapshot,
+  owningPackage,
+} from '../scripts/profile-audit-lib.mjs'
 
 describe('editor profile audit', () => {
   it('parses nested Cordis groups and ignores non-Harness modules', () => {
@@ -16,6 +21,14 @@ describe('editor profile audit', () => {
     - id: selected
       name: '@deepseek-ai/dsh-tool-selected'
 `)).toEqual(['@deepseek-ai/dsh-tool-selected'])
+  })
+
+  it('resolves subpath companions to the package that must be installed', () => {
+    expect(owningPackage('@deepseek-ai/dsh-agent/invariant')).toBe('@deepseek-ai/dsh-agent')
+    expect(owningPackage('@deepseek-ai/dsh-agent')).toBe('@deepseek-ai/dsh-agent')
+    expect(owningPackage('@deepseek-ai/dsh-tool-subagent-control/list-agents'))
+      .toBe('@deepseek-ai/dsh-tool-subagent-control')
+    expect(owningPackage('local-plugin/sub')).toBe('local-plugin')
   })
 
   it('reports stable additions and removals', () => {

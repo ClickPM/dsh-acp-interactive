@@ -56,8 +56,10 @@ import {
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, errorChain, type ContentBlock, type TokenUsage } from '@deepseek-ai/dsh-llm'
-import { SessionId, type SessionEvent, type TodoItem, type TurnEndReason } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session'
 // Declaration merges for the plugin-owned events and services projected below.
+// `dsh-tool-todo` now owns both the `todo/write` session event and `TodoItem`.
+import type { TodoItem } from '@deepseek-ai/dsh-tool-todo'
 import { parseCommand } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-plan-mode'
@@ -82,7 +84,7 @@ import {
   permissionDirectory,
   sessionConfigOptions,
 } from './config-options.js'
-import { acpQuestionProvider } from './elicitation.js'
+import { acpQuestionAnswerer } from './elicitation.js'
 import {
   DEFAULT_MODE_ID,
   PLAN_MODE_ID,
@@ -1171,17 +1173,14 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     .onNotification(methods.agent.session.cancel, ({ params }) => handlers.cancel(params))
   conn = app.connect(observeOutbound(baseStream, announceInitialCommands))
 
-  ctx.inject(['userQuestions'], (questionCtx) => {
-    const dispose = questionCtx.userQuestions.registerProvider(acpQuestionProvider(
-      (request) => {
-        if (request.agent === undefined) return undefined
-        return ownedRecord(request.agent)?.agent.session.id
-      },
-      () => elicitationEnabled,
-      (request, options) => conn.client.request(methods.client.elicitation.create, request, options),
-    ))
-    questionCtx.effect(() => dispose, 'acp-interactive: user-questions provider')
-  })
+  ctx.on('user-questions/request', acpQuestionAnswerer(
+    (request) => {
+      if (request.agent === undefined) return undefined
+      return ownedRecord(request.agent)?.agent.session.id
+    },
+    () => elicitationEnabled,
+    (request, options) => conn.client.request(methods.client.elicitation.create, request, options),
+  ))
 
   let quiescing: Promise<void> | undefined
   const quiesce = (): Promise<void> => {

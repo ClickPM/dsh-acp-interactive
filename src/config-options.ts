@@ -89,8 +89,12 @@ function reasoningConfigOption(
 export interface PermissionPresetDirectory {
   /** Switchable preset names in display order. */
   readonly names: readonly string[]
-  /** Resolve the effective preset from one session log. */
-  current(events: Agent['session']['events']): string
+  /**
+   * Resolve the effective preset for one session. The service reads the folded
+   * permission projection from the session itself, so it takes the Session
+   * rather than a detached event log.
+   */
+  current(session: Agent['session']): string
   /** Resolve presentation metadata for one preset. */
   optionOf(name: string): { value: string; name: string; description?: string }
 }
@@ -208,7 +212,7 @@ export async function sessionConfigOptions(
 
   const permissions = permissionDirectory(ctx)
   if (permissions !== undefined && permissions.names.length > 0) {
-    const currentValue = permissions.current(agent.session.events)
+    const currentValue = permissions.current(agent.session)
     const presetNames = [
       ...permissions.names,
       ...permissions.names.includes(currentValue) ? [] : [currentValue],

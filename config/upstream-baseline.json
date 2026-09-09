@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "comment": [
+    "The pinned official DeepSeek Harness baseline for `npm run test:harness`.",
+    "The runner extracts the official specs from this exact git ref rather than",
+    "from whatever the local checkout has checked out, so the compatibility gate",
+    "cannot silently drift with a developer's working tree.",
+    "Every official ACP spec file must be classified below. An unclassified file",
+    "fails the run: a new official assertion is a review event, not a silent skip."
+  ],
+  "ref": "dsh-v0.1.2-rc.1",
+  "packageVersion": "0.1.2-rc.1",
+  "acpTestPath": "packages/acp/acp/tests",
+  "sharedFixturePaths": [
+    "packages/mcp/mcp-client/tests"
+  ],
+  "alignedSpecs": [
+    {
+      "file": "codec.spec.ts",
+      "contract": "ACP prompt stop-reason vocabulary. Both implementations map a durable turn ending onto the same protocol enum, including max_tokens, so the official assertions run verbatim against src/codec.ts."
+    }
+  ],
+  "divergentSpecs": [
+    {
+      "file": "approval.spec.ts",
+      "kind": "composition",
+      "reason": "Uses the official automation-only tests/harness.ts, which composes neither `commands`, `skills`, nor `sessionQuery`. This server injects all three to serve slash commands, skills, and session/load, so its plugin fiber never activates in that harness."
+    },
+    {
+      "file": "bridge.spec.ts",
+      "kind": "composition",
+      "reason": "Same automation-only harness limitation as approval.spec.ts. The file also asserts the official surface's absence of session/load, presentation cards, and elicitation, which this editor-facing server advertises."
+    },
+    {
+      "file": "dispose.spec.ts",
+      "kind": "composition",
+      "reason": "Same automation-only harness limitation as approval.spec.ts. This repository's own tests/dispose.spec.ts covers connection ownership and quiescence for the composed editor profile."
+    },
+    {
+      "file": "edges.spec.ts",
+      "kind": "composition",
+      "reason": "Same automation-only harness limitation as approval.spec.ts. Covered locally by tests/bridge-edges.spec.ts."
+    },
+    {
+      "file": "multi-session.spec.ts",
+      "kind": "composition",
+      "reason": "Same automation-only harness limitation as approval.spec.ts. Covered locally by tests/sessions.spec.ts and the built-launcher cross-process session tests."
+    },
+    {
+      "file": "turns.spec.ts",
+      "kind": "composition",
+      "reason": "Same automation-only harness limitation as approval.spec.ts. Covered locally by tests/bridge.spec.ts and tests/schema-conformance.spec.ts."
+    },
+    {
+      "file": "content.spec.ts",
+      "kind": "internal-api",
+      "reason": "Imports the official module's private export names `supportsAcpImagePrompts`, `admitAcpPrompt`, `assistantBlockToAcp`, and `AcpContentError`. This repository owns the same protocol behavior under `admitPrompt`, `projectImage`, and `InteractivePromptError` in src/content.ts, plus editor-only concerns the official codec has no counterpart for."
+    },
+    {
+      "file": "mcp.spec.ts",
+      "kind": "internal-api",
+      "reason": "Imports the official `mountAcpMcpServers`. This repository splits the same stdio/HTTP declaration mapping into `mapMcpServers` and `installSessionMcp` so a failed server can roll back a whole session, which tests/mcp.spec.ts covers against real servers."
+    },
+    {
+      "file": "model-control.spec.ts",
+      "kind": "internal-api",
+      "reason": "Imports `../src/model-control.ts`, a module the official package introduced at 0.1.2-rc.1. This repository already served session/set_config_option before that split, from src/config-options.ts and src/index.ts, and encodes model values as an opaque provider:model pair rather than the official JSON tuple. ACP treats the value as opaque, so this is not a protocol difference."
+    },
+    {
+      "file": "updates.spec.ts",
+      "kind": "internal-api",
+      "reason": "Imports `../src/updates.ts`, another module introduced at 0.1.2-rc.1. This repository projects committed events from src/presentation.ts and src/index.ts, and additionally emits tool-owned cards, diffs, and terminal content that the official projection does not produce."
+    }
+  ]
+}

@@ -11,7 +11,6 @@ import type {
   AskUserQuestionAnswer,
   AskUserQuestionItem,
   AskUserQuestionRequest,
-  UserQuestionProvider,
 } from '@deepseek-ai/dsh-user-questions'
 
 interface QuestionField {
@@ -132,41 +131,47 @@ async function awaitElicitation(
 }
 
 /**
- * Build a provider that routes only bridge-owned root agents to ACP form elicitation.
+ * Build the answerer that routes only bridge-owned root agents to ACP form
+ * elicitation.
+ *
+ * The user-questions service dispatches a scope-filtered waterfall rather than
+ * a provider registry, so a request this connection does not own is delegated
+ * with `next()` instead of rejected here: the service already refuses a
+ * non-live or delegated caller before dispatch, and its terminal step reports
+ * `NO_PROVIDER` when no composed answerer claims the request. Declining to
+ * claim is therefore how this transport keeps agents owned by another
+ * connection, and clients that never advertised form elicitation, out of the
+ * ACP elicitation path.
  * @param owns - returns the session id only for an exact bridge-owned agent.
  * @param enabled - whether the initialized client advertised form elicitation.
  * @param create - ACP client request method.
- * @returns provider suitable for `ctx.userQuestions.registerProvider()`.
+ * @returns listener suitable for `ctx.on('user-questions/request', ...)`.
  */
-export function acpQuestionProvider(
+export function acpQuestionAnswerer(
   owns: (request: AskUserQuestionRequest) => string | undefined,
   enabled: () => boolean,
   create: (
     request: CreateElicitationRequest,
     options?: SendRequestOptions,
   ) => Promise<CreateElicitationResponse>,
-): UserQuestionProvider {
-  return {
-    async ask(request): Promise<AskUserQuestionAnswer> {
-      const sessionId = owns(request)
-      if (sessionId === undefined) {
-        throw new UserQuestionError('ACP user interaction requires an agent owned by this connection', 'ASK_FOREIGN_AGENT')
+): (
+  request: AskUserQuestionRequest,
+  next: () => Promise<AskUserQuestionAnswer>,
+) => Promise<AskUserQuestionAnswer> {
+  return async (request, next) => {
+    const sessionId = owns(request)
+    if (sessionId === undefined || !enabled()) return next()
+    const { fields, wire } = formRequest(request, sessionId)
+    const response = await awaitElicitation(request, create(
+      wire,
+      request.signal === undefined ? undefined : { cancellationSignal: request.signal },
+    ))
+    if (!CreateElicitationResponse.isAccept(response)) {
+      if (!CreateElicitationResponse.isDecline(response) && !CreateElicitationResponse.isCancel(response)) {
+        throw new UserQuestionError('elicitation returned an unsupported action', 'INVALID_ANSWER')
       }
-      if (!enabled()) {
-        throw new UserQuestionError('the ACP client did not advertise form elicitation', 'NO_PROVIDER')
-      }
-      const { fields, wire } = formRequest(request, sessionId)
-      const response = await awaitElicitation(request, create(
-        wire,
-        request.signal === undefined ? undefined : { cancellationSignal: request.signal },
-      ))
-      if (!CreateElicitationResponse.isAccept(response)) {
-        if (!CreateElicitationResponse.isDecline(response) && !CreateElicitationResponse.isCancel(response)) {
-          throw new UserQuestionError('elicitation returned an unsupported action', 'INVALID_ANSWER')
-        }
-        throw new UserQuestionError('the user dismissed the question without answering', 'ASK_CANCELLED')
-      }
-      return acceptedAnswer(fields, response)
-    },
+      throw new UserQuestionError('the user dismissed the question without answering', 'ASK_CANCELLED')
+    }
+    return acceptedAnswer(fields, response)
   }
 }

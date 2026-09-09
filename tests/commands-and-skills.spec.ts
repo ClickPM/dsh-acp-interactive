@@ -73,7 +73,7 @@ describe('interactive ACP commands and skills', () => {
       source: { kind: 'skill-invocation', name: 'user-only', form: 'instructions' },
     }))
     const agent = harness.ctx.agents.get(SessionId(sessionId))
-    expect(agent?.session.events.some(event => event.type === 'command/run')).toBe(false)
+    expect(agent?.session.snapshotEvents().some(event => event.type === 'command/run')).toBe(false)
   })
 
   it('gives a real command priority over a same-name skill', async () => {
@@ -191,7 +191,7 @@ describe('interactive ACP commands and skills', () => {
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
     expect(harness.adapter.requests).toHaveLength(0)
-    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.events).toEqual([])
+    expect(harness.ctx.agents.get(SessionId(sessionId))?.session.snapshotEvents()).toEqual([])
   })
 
   it('keeps scoped skill directories and invocation routing isolated by session', async () => {
