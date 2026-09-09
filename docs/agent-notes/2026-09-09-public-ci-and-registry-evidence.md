@@ -26,9 +26,13 @@ work; this note records how they land.
   `.github/workflows/registry-auth.yml` stages that entry into a fresh clone of
   `agentclientprotocol/registry` and runs the Registry's own
   `build_registry.py --dry-run` and `verify_agents.py --auth-check`. It runs
-  daily, on demand, and after every published release, so the submission is
-  continuously re-validated with the maintainers' scripts rather than a local
-  approximation.
+  daily, on demand with an explicit version, and is dispatched by the release
+  workflow after it publishes a version (a Release created with
+  `GITHUB_TOKEN` does not fire `release: published` for other workflows, so
+  the dispatch is explicit; after a manual npm publish, run
+  `gh workflow run registry-auth.yml -f version=<x.y.z>` by hand). The
+  submission is thus re-validated with the maintainers' scripts rather than a
+  local approximation.
 - `.github/workflows/release.yml` runs on `v*.*.*` tags. It verifies the tagged
   tree, packs the tarball, publishes through npm trusted publishing only when
   the repository variable `NPM_TRUSTED_PUBLISHING` is `true`, and creates the

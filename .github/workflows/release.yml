@@ -12,6 +12,7 @@ on:
 permissions:
   contents: write
   id-token: write
+  actions: write
 
 jobs:
   release:
@@ -77,3 +78,12 @@ jobs:
             --generate-notes \
             --notes "npm: https://www.npmjs.com/package/deepseekharness-acp-interactive/v/${GITHUB_REF_NAME#v}" \
             deepseekharness-acp-interactive-*.tgz SHA256SUMS.txt
+
+      # A Release created with GITHUB_TOKEN does not fire `release: published`
+      # for other workflows, so dispatch the Registry check explicitly once the
+      # version is on npm. After a manual publish, run the same command by hand.
+      - name: Re-validate the published package with the Registry's scripts
+        if: vars.NPM_TRUSTED_PUBLISHING == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run registry-auth.yml --ref "$GITHUB_REF_NAME" -f version="${GITHUB_REF_NAME#v}"

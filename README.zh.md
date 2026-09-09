@@ -232,7 +232,7 @@ Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改
 ## 验证与 ACP Registry
 
 - [CI](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/ci.yml) 在每次 push 和 pull request 时于 Ubuntu、macOS、Windows 与 Node `22.19`、`24` 上运行：`npm ci`、typecheck、构建与测试、pack dry run，以及 `verify:packed`——它把打包后的 tarball 安装到仓库之外，运行 `--setup`，并驱动真实 launcher 完成 `initialize`、带 session 级 MCP server 的 `session/new` 和 `session/close`。
-- [Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml) 把 [`registry/agent.json`](registry/agent.json) 与 [`icon.svg`](icon.svg) 放进 [agentclientprotocol/registry](https://github.com/agentclientprotocol/registry) 的全新 clone，并用该仓库自己的 `build_registry.py --dry-run` 和 `verify_agents.py --auth-check` 对已发布的 npm 包做校验；每日运行，并在每次 release 后运行。
+- [Registry auth check](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/registry-auth.yml) 把 [`registry/agent.json`](registry/agent.json) 与 [`icon.svg`](icon.svg) 放进 [agentclientprotocol/registry](https://github.com/agentclientprotocol/registry) 的全新 clone，并用该仓库自己的 `build_registry.py --dry-run` 和 `verify_agents.py --auth-check` 对已发布的 npm 包做校验：每日运行、可手动触发（`gh workflow run registry-auth.yml -f version=<x.y.z>`），并在 release 工作流发布版本后由其触发。
 - [Release](https://github.com/ClickPM/dsh-acp-interactive/actions/workflows/release.yml) 在 `v*.*.*` tag 上运行，重新验证打 tag 的代码树，通过 npm trusted publishing 发布（普通 CI 不持有发布 token），并把 tarball 和 `SHA256SUMS.txt` 附加到 GitHub Release。
 - Registry 提交：[agentclientprotocol/registry#585](https://github.com/agentclientprotocol/registry/pull/585)。`npm run check:registry` 在本地把条目和图标与 `package.json` 对照校验。
 
