@@ -1,51 +1,55 @@
 # dsh-acp-interactive
 
-中文 | [English](README.en.md)
+[中文](README.md) | English
 
-面向编辑器的 Agent Client Protocol JSON-RPC stdio 服务器。它按需创建 dsh agent，并把实时 session 事件投影为 ACP 消息、思考、工具、审批、计划、标题、用量和命令更新。首个兼容目标是 Zed。
+Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh agents on demand and projects their live session events into ACP message, thought, tool, permission, plan, title, usage, and command updates. Zed is the first compatibility target.
 
-本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合，因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
+This package publishes both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition shipped with the package, so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
 ## 1.0.3
 
-`1.0.3` 让 terminal authentication 同时识别稳定 ACP v1 能力字段和 ACP
-Registry validator 的旧 `_meta["terminal-auth"]` 兼容字段。公开 npm 包仍为
-`deepseekharness-acp-interactive`；支持该能力的 Zed/ACP 客户端可以通过独立的
-`--setup` 进程配置 DeepSeek 官方 API key，普通 ACP transport 不接触或输出
-密钥。
+Version `1.0.3` recognizes both the stable ACP v1 terminal-auth capability and
+the ACP Registry validator's legacy `_meta["terminal-auth"]` compatibility
+flag. The public npm package remains `deepseekharness-acp-interactive`.
+Supporting Zed/ACP clients can configure an official DeepSeek API key through
+an isolated `--setup` process; the ordinary ACP transport never handles or
+prints the secret.
 
-## 安装
+## Installation
 
-从 npm 全局安装并锁定版本：
+Install globally from npm and pin the version:
 
 ```sh
 npm install --global deepseekharness-acp-interactive@1.0.3
 ```
 
-需要审计源码时，可对照 GitHub 的 `v1.0.3` tag。
+For source auditing, compare the package with the GitHub `v1.0.3` tag.
 
-安装会运行本包的 `prepare` 构建脚本并安装 `dsh-acp-interactive` 命令。该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
+Installation runs this package's `prepare` build and installs the `dsh-acp-interactive` command. That command loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
-首次使用 DeepSeek 官方 API 前，可在终端运行：
+Before using the official DeepSeek API for the first time, run:
 
 ```sh
 dsh-acp-interactive --setup
 ```
 
-该交互不会回显输入的 API key，并通过 Harness credentials 服务把
-`DEEPSEEK_API_KEY` 原子写入 `$DSH_HOME/.credentials.yaml`；Provider
-负责文件锁、并发更新及 POSIX 下的 `0700` 目录／`0600` 文件权限。已有
-file credential 时留空会保留原值；若启动环境已经提供
-`DEEPSEEK_API_KEY`，环境值按 Harness 优先级生效，命令不会写入一个被遮蔽的
-file credential。此流程只保存凭据，不会发送网络请求；第一次模型请求仍负责
-验证 key 是否有效。
+The prompt does not echo the API key. It delegates an atomic
+`DEEPSEEK_API_KEY` write in `$DSH_HOME/.credentials.yaml` to the Harness
+credentials service, whose provider owns locking, concurrent updates, and the
+POSIX `0700` directory / `0600` file permissions. Leaving the prompt blank
+keeps an existing file credential. When the launching environment already
+supplies `DEEPSEEK_API_KEY`, that value wins by Harness precedence and setup
+does not write a shadowed file credential. Setup only stores the credential;
+it makes no network request, so the first model request still validates the
+key.
 
-支持 ACP terminal authentication 的客户端会在初始化时看到
-`Configure DeepSeek API key` 方法，并用同一个 `--setup` 流程打开交互式终端。
-不声明 terminal-auth 能力的客户端不会收到该方法。terminal setup 是独立进程，
-不会启动 ACP transport；正常服务模式仍保留 stdout 仅传输 JSON-RPC 的约束。
+Clients that advertise ACP terminal authentication see a
+`Configure DeepSeek API key` method and open the same interactive `--setup`
+flow. Clients without terminal-auth support are not offered that method. The
+terminal setup runs as a separate process and does not start the ACP transport;
+normal server mode continues to reserve stdout for JSON-RPC frames.
 
-需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合：
+Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition:
 
 ```yaml
 - id: settings
@@ -64,64 +68,64 @@ file credential。此流程只保存凭据，不会发送网络请求；第一�
     model: deepseek-v4-pro
 ```
 
-包内组合已经显式加载这三个 provider 依赖。`settings-file` 默认读取 `$DSH_HOME/settings.yaml`，`credentials-local` 解析同一个 dsh home 下的托管凭据，休眠挂载的 `llm-pi-ai` 则为 `llm-pi-ai.providers` 中的每条 route 动态注册模型。未设置 `DSH_HOME` 时使用当前用户的默认 `.dsh` 目录。因此 Pi Agent 桌面版与 Zed ACP 可以共享 provider、模型目录和凭据引用，无需把 API key 复制进 Zed 或 `cordis.yml`。profile 的 `apiKeyEnv` 必须与 `.credentials.yaml` 的 `refs` 键名一致。桌面版与 ACP server 仍是相互隔离的进程和 session。
+The bundled composition explicitly mounts these three provider dependencies. `settings-file` reads `$DSH_HOME/settings.yaml` by default, `credentials-local` resolves managed credentials from the same dsh home, and the dormant `llm-pi-ai` mount dynamically registers every route under `llm-pi-ai.providers`. With no `DSH_HOME` override, the current user's default `.dsh` directory is used. Pi Agent Desktop and Zed ACP can therefore share provider profiles, model catalogs, and credential references without copying API keys into Zed or `cordis.yml`. A profile's `apiKeyEnv` must match a key under `.credentials.yaml` `refs`. The desktop app and ACP server remain separate processes with isolated sessions.
 
-`provider` 和 `model` 仅决定新 session 的初始 route，不会限制模型选择器。只要外围组合同时保留 DeepSeek adapter，Zed 就会按 provider 分组显示 DeepSeek 和用户配置的 OpenAI-compatible、Anthropic 或自定义网关模型。运行中修改 `settings.yaml` 后，provider 目录会由 settings 与 LLM registry 的现有动态更新路径刷新。
+`provider` and `model` select only the initial route for a new session; they do not restrict the model selector. When the surrounding composition also retains the DeepSeek adapter, Zed groups DeepSeek together with the user's OpenAI-compatible, Anthropic, and custom gateway routes. Changes to `settings.yaml` refresh the provider directory through the existing settings and LLM-registry update path.
 
-## 插件
+## Plugin
 
-`apply(ctx, config)` 需要 `agents`、`commands`、`llm`、`skills`、`tools`、`sessions`、`sessionPersistence` 和 `sessionQuery`。它只回答自己创建的 agent 的审批请求，并把外来请求交给下一个监听器。一条连接可以拥有多个互相隔离的 session；每个事件、选择、skill 查找和审批在进入 wire 前都会核对精确的 agent 对象。组合 `permissionPresets` 服务后会增加权限 selector；缺少该服务时模型选择仍然可用，而权限配置会省略。
+`apply(ctx, config)` requires `agents`, `commands`, `llm`, `skills`, `tools`, `sessions`, `sessionPersistence`, and `sessionQuery`. It answers approval requests only for agents it created and delegates every foreign request. One connection may own several isolated sessions; every event, selection, skill lookup, and approval is checked against the exact agent object before it reaches the wire. A composed `permissionPresets` service adds the permission selector; its absence leaves model selection available and omits permission configuration.
 
-| 配置 | 含义 |
+| Config | Meaning |
 |---|---|
-| `provider` | 新建 agent 使用的可选 provider route。 |
-| `model` | 新建 agent 使用的可选模型 id。 |
+| `provider` | Optional provider route for newly created agents. |
+| `model` | Optional model id for newly created agents. |
 
-`stream` 只是运行时测试覆盖项。生产环境的 stdout 仅承载 ACP 帧，输入帧来自 stdin。
+`stream` is a runtime-only test override. Production reserves stdout for ACP frames and reads frames from stdin.
 
-## 协议
+## Protocol
 
-插件实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume` 和 `session/close`。文本与 reasoning 增量会立即流式发送。工具调用读取每个工具的 `presentCall`、`presentResult` 和持久化的 `presentationMeta`；`generic`、`diff` 和 `terminal` 意图无需按工具名分支即可映射为 ACP 卡片。Editor profile 新增的 `glob`／`grep` 由 Harness 的已发布 filesystem-search 插件和随包 ripgrep 执行，仍走相同通用投影。`todo/write`、`session/title`、请求容量、provider 用量以及命令注册表变化会更新对应的客户端 session。
+The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall`, `presentResult`, and durable `presentationMeta`; generic, diff, and terminal intents map to ACP cards without switching on tool names. The editor profile's new `glob` and `grep` tools execute in the published Harness filesystem-search plugin with its packaged ripgrep binary and use the same generic projection. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
 
-新会话收到第一条合格的文字提示后，会先发布 Harness 的即时确定性回退标题，再异步使用该次主请求已记录的精确 provider/model route 概括标题。模型结果作为新的 `session/title` 事件持久化并通过 `session_info_update` 替换客户端标题；生成失败、超时或输入超过 4096 字节时保留回退标题，不影响主 agent 响应。后续提示不会自动反复改名。
+After a new session receives its first eligible text prompt, Harness publishes its immediate deterministic fallback title and then asynchronously summarizes that prompt with the exact provider/model route recorded for the main request. The accepted model result is persisted as a newer `session/title` event and replaces the client title through `session_info_update`. Failure, timeout, or framed input beyond 4096 bytes keeps the fallback without delaying the main agent response. Later prompts do not repeatedly retitle the session.
 
-`session/list` 从 live 优先的查询语料库读取 session，按确定性的创建时间倒序返回，省略没有已记录绝对 cwd 的 session，支持精确 cwd 过滤，并尽可能附带日志中的标题。当前响应为不分页的完整结果；非 null cursor 会明确失败。
+`session/list` reads the live-preferred query corpus in deterministic newest-created order, omits sessions without a recorded absolute cwd, supports exact cwd filtering, and includes log-backed titles when available. The current response is one complete page; a non-null cursor fails explicitly.
 
-`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，通过标准 `ctx.sessions.flush()` durability barrier 后再释放精确归属的 agent；成功返回后，另一个共享 JSONL 真源的进程可以立即发现并恢复历史。Checkpoint 失败仍会释放在线资源并明确报错，close 不删除持久历史。
+`session/load` restores the persisted dsh agent and replays assembled human and assistant messages, reasoning, images, tool cards, the latest plan and title, final usage, and the command catalog before returning. It never replays raw assistant chunks, so assembled messages appear once. `session/resume` restores the same context without emitting history. `session/close` cancels prompt admission, skill discovery, model, or command work, waits for output and continuable descendants to settle, crosses the standard `ctx.sessions.flush()` durability barrier, and only then disposes the exact owned agent. After a successful response, another process sharing the JSONL source can discover and restore the history immediately. A checkpoint failure still releases live resources and fails explicitly; close never deletes durable history.
 
-MCP 配置是在线、完整且逐 session 归属的。Stdio command 直接以 executable 加 argv 传递，不经过 shell 拼接；显式 env 和 HTTP headers 不会持久化到 session log，也不会进入模型上下文。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
+MCP configuration is live, complete, and session-scoped. Stdio commands are passed directly as executable plus argv without shell interpolation; explicit env values and HTTP headers are never persisted in the session log or added to model context. Stable ACP v1 stdio and HTTP transports are supported, while SSE, ACP-proxied MCP, and unknown variants fail explicitly. Initial connection or tool-discovery failure fails the whole create/restore transaction and rolls back every server already started. Load and resume use only the current request's complete configuration, so an omitted, removed, changed, or failed server never inherits an older connection. Deterministic `mcp__<server>__<tool>` names remain stable across restoration, while private per-session Cordis roots permit two sessions to use the same server name without sharing tools.
 
-个人统一配置可放在客户端侧，但不是本包的运行依赖。例如 Zed 的 `context_servers` 可把每个服务配置为 `agent-config-mcp serve <service-id>`，随后通过标准 ACP `mcpServers` 传入本包；本包仍只消费协议记录，不读取个人目录或识别该命令。独立 Harness WebUI 若使用自己的 agent-config consumer，必须在每个 agent 的私有 Cordis root 中另建连接，而且不能把该 consumer 加入本包的 `config/cordis.yml`。因此 Zed ACP 与 `npx dsh` WebUI 可以共享静态服务定义和凭据引用，但不共享 MCP Client、transport、工具注册表、session ID、取消信号、子进程或重连任务。完整边界见 [Agent Note](docs/agent-notes/2026-09-07-agent-config-integration.md)。
+A personal control plane may live on the client side, but it is not a runtime dependency of this package. For example, Zed `context_servers` may configure each service as `agent-config-mcp serve <service-id>` and pass it here through standard ACP `mcpServers`; this package still consumes only protocol records and never reads a personal directory or recognizes that command. A standalone Harness WebUI may use its own agent-config consumer only when it creates separate connections in a private Cordis root for every agent, and that consumer must not be added to this package's `config/cordis.yml`. Zed ACP and the `npx dsh` WebUI can therefore share static definitions and credential references without sharing an MCP Client, transport, tool registry, session ID, cancellation signal, child process, or reconnect task. See the [Agent Note](docs/agent-notes/2026-09-07-agent-config-integration.md) for the full boundary.
 
-ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 cwd 与 scope 发现的 `userInvocable` skill。真实命令与同名 skill 冲突时由命令胜出。`commands/change` 和 `skills/change` 会触发按 session 的完整替换更新；skill 观察不完整或失败时保留上一次完整条目，完整空结果会删除旧条目。以 `/<skill-name>` 开头的输入若仍能解析为用户可调用定义，就进入普通用户消息路径，由 `@deepseek-ai/dsh-tool-skill` 完成标准、已落账的 `agent/pre-step` 注入。未知斜杠名称仍是未知命令；仅限模型的 skill 既不公布，也不接受为 ACP 显式 skill 调用。
+The ACP command catalog merges the exact agent's `ctx.commands` view with the `userInvocable` skills discovered for its cwd and scope. A real command wins a same-name collision. `commands/change` and `skills/change` trigger full per-session replacement updates; incomplete or failed skill observations retain the last complete skill entries, and a complete empty result removes them. A leading `/<skill-name>` that still resolves to a user-invocable definition enters the ordinary user-message path, where `@deepseek-ai/dsh-tool-skill` performs the standard logged `agent/pre-step` injection. Unknown slash names remain unknown commands, and model-only skills are neither advertised nor accepted as explicit ACP skill invocations.
 
-命令目录本身不声明领域命令；包内 editor profile 挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback` 及其对应 domain/provider，目录仍只从实际的 `ctx.commands.register()` 动态发现。该 bridge 只执行已注册的 command，不把模型工具误当作斜杠命令。
+The catalog does not declare domain commands itself. The bundled editor profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback` with their corresponding domains/providers, while discovery still comes only from actual `ctx.commands.register()` calls. This bridge executes registered commands and does not treat model tools as slash commands.
 
-当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。组合 attachment store 后，初始化会声明图片输入；每张图片都会针对所选模型 route 完成校验和持久化后才排入消息，因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource 和 additional directory 会被明确拒绝；Additional directories 的领域能力由独立的 `dsh-additional-directories` DSH 插件项目负责。直接斜杠命令仍只接受文字。
+Text, resource-link, and inline raster-image prompts are supported. Resource links become explicit bracketed references in the durable user message. When an attachment store is composed, initialization advertises image input; each image is validated against the selected model route and stored before the message is queued, so the session log contains only durable references. Images replay as verified inline ACP content. Audio, embedded resources, and additional directories are rejected explicitly; the independent `dsh-additional-directories` DSH plugin project owns the Additional directories domain capability. Direct slash commands remain text-only.
 
-组合 `ctx.planMode` 后，新建、加载和恢复的 session 会公布 `default` 与 `plan` mode。`session/set_mode` 委托该服务处理，已提交的 `plan/mode` 事件发布 `current_mode_update`；transport 不保留平行的 mode 状态。
+When `ctx.planMode` is composed, new, loaded, and resumed sessions advertise `default` and `plan` modes. `session/set_mode` delegates to that service, and committed `plan/mode` events publish `current_mode_update`; the transport keeps no separate mode state.
 
-组合 `ctx.userQuestions` 后，插件会为自己精确拥有的根 agent 注册 provider。声明稳定 ACP form elicitation 的客户端会收到结构化问题、选项、多选字段、可选自由文本和 plan-review 详情。拒绝或关闭返回 `ASK_CANCELLED`，turn 或 request 取消返回 `ASK_ABORTED`，未知的未来 action 会失败关闭；不支持 form elicitation 的客户端会明确失败。
+When `ctx.userQuestions` is composed, the plugin registers a provider for its exact owned root agents. Clients advertising stable ACP form elicitation receive structured questions, choices, multi-select fields, optional free text, and plan-review detail. Decline or dismissal returns `ASK_CANCELLED`, turn or request cancellation returns `ASK_ABORTED`, unknown future actions fail closed, and clients without form elicitation fail explicitly.
 
-## Session 配置
+## Session configuration
 
-`session/new`、`session/load` 和 `session/resume` 返回完整的 ACP `configOptions` 列表。模型 selector 按 provider 对各 adapter 的建议目录分组，每个值编码完整的 provider/model route。所选 route 在下一次 prompt assembly 边界生效；已经进入 assembly 或正在运行的 step 保留已捕获 route。恢复的 session 使用最后一条已记录 request header；若目录不再公布该 route，它仍作为 current-only 行显示，不会被组合默认值替换。客户端提交不在当前目录中的值会被拒绝。
+`session/new`, `session/load`, and `session/resume` return the complete ACP `configOptions` list. The model selector groups each adapter's advisory catalog by provider and encodes the complete provider/model route in each value. The selected route applies at the next prompt-assembly boundary; a step already assembling or running keeps its captured route. Restored sessions use the latest logged request header, and an unadvertised restored route remains a current-only row instead of being replaced by the composition default. Client values not present in the current directory are rejected.
 
-配置投影接受 ACP 1.x 的 `model_config` category，并按客户端 `session.configOptions.boolean` 能力协商 boolean option。当前组合没有真实 boolean 领域配置，因此不会制造或公布开关；未知 boolean 配置与错误值类型均明确拒绝。
+Configuration projection accepts ACP 1.x's `model_config` category and gates boolean options on the client's `session.configOptions.boolean` capability. The current composition has no real boolean domain option, so it does not invent or advertise a toggle; unknown boolean configuration and malformed value types are rejected explicitly.
 
-当所选模型公布 reasoning effort 时，`thought_level` selector 会暴露 `Default` 和每个 adapter 自有 effort。所选值在下一次 prompt assembly 边界生效。切换模型会把显式 effort 重置为新 route 的默认值；恢复 session 时从最后一条 request header 恢复 effort，在对应目录行或全部 reasoning metadata 不可用时仍显示 current-only 历史值。
+When the selected model advertises reasoning efforts, a `thought_level` selector exposes `Default` plus every adapter-owned effort. The selected value applies at the next prompt-assembly boundary. Switching models resets the explicit effort to the new route's default; restored sessions recover the effort from the latest request header, including a current-only historical value when its catalog row or all reasoning metadata is unavailable.
 
-组合 `ctx.permissionPresets` 后，权限 selector 会暴露其配置的 presets。切换复用现有 `/permission` 写路径，因此 preset、sandbox mode、approval policy、在线 approval 状态和持久事件保持一致。运行中的 session 也接受权限变更：切换立即写入持久事件，对后续受限调用与审批请求生效。配置请求按 session 串行化，prompt 不能越过尚未结算的切换。Adapter topology 变化、selector 切换和直接执行 `/permission` 都会发布完整 `config_option_update`。
+When `ctx.permissionPresets` is composed, a permission selector exposes its configured presets. A switch executes the existing `/permission` write path, so the preset, sandbox mode, approval policy, live approval state, and durable events stay aligned. A running session also accepts permission changes: the switch commits durable events immediately and takes effect on subsequent confined calls and approval requests. Configuration requests are serialized per session, and a prompt cannot pass an unsettled switch. Adapter topology changes, selector switches, and direct `/permission` commands publish a full `config_option_update`.
 
-## 工具执行与权限
+## Tool execution and permissions
 
-ACP 不执行 dsh 工具。工具调用始终留在 harness 内，继续使用原有 cwd、沙箱、子进程、超时和生命周期策略。由本 bridge 创建的 `approval/request` 会成为带 `allow_once` 和 `reject_once` 的 ACP permission request；取消仍是取消，未知选项不会获得授权。
+ACP never executes a dsh tool. A tool call stays inside the harness and uses its normal cwd, sandbox, subprocess, timeout, and lifecycle policies. A bridge-owned `approval/request` becomes an ACP permission request with `allow_once` and `reject_once`; cancellation stays cancellation and an unknown option never grants access.
 
-Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后，terminal 展示意图会产生终端元数据和已捕获输出；其他客户端得到 fenced console 回退。location 和 diff 中的文件路径保持不变，因此 editor follow-along 打开的是工具实际操作的文件。
+The Zed terminal extension is capability-gated. When the client advertises `_meta.terminal_output`, a terminal render intent produces terminal metadata and captured output. Other clients receive a fenced console fallback. File paths in locations and diffs stay unchanged so editor follow-along opens the operated file.
 
-## 在 Zed 中运行
+## Running with Zed
 
-安装后，在 Zed 中直接登记随包安装的命令。Windows 可用 `where.exe dsh-acp-interactive` 确认绝对路径：
+After installation, register the installed command directly in Zed. On Windows, `where.exe dsh-acp-interactive` prints its absolute path:
 
 ```json
 {
@@ -135,75 +139,75 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 }
 ```
 
-Zed 会以当前工作区作为 server cwd；JSONL session 存在该工作区的 `.sessions`，每个 server 进程使用独立的内存 SQLite session-query 索引。多个编辑器进程可以共享 JSONL 真源而不会争用派生索引。无需 DeepSeek Harness checkout，也无需 Zed 编写 DeepSeek 专用代码。
+Zed starts the server with the workspace as cwd. JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index. Multiple editor processes can share the JSONL source of truth without contending for the derived index. No DeepSeek Harness checkout or DeepSeek-specific Zed code is required.
 
-受支持版本与能力验证状态见 [Zed 兼容矩阵](docs/compatibility.md)。当前发布以 ACP SDK `1.4.0` 的稳定 v1 schema 为基线。
+See the [Zed compatibility matrix](docs/compatibility.en.md) for supported versions and verification status. This release uses the stable ACP v1 schema from SDK `1.4.0` as its baseline.
 
-显式配置支持图片的模型时，必须声明输入模态。例如：
+An explicitly configured image-capable model must declare its input modalities. For example:
 
 ```yaml
 - id: deepseek-v4-flash-vision-exp
   inputModalities: [text, image]
 ```
 
-缺少该元数据时，DeepSeek adapter 会把显式目录项视为纯文字模型，bridge 会在 prompt 入队前拒绝图片。
+Without this metadata, the DeepSeek adapter treats that explicit catalog entry as text-only and the bridge rejects image admission before queuing the prompt.
 
-## 模型体验
+## Model Experience
 
-### Prompt 与命令
+### Prompts and commands
 
-#### 模型看到什么
+#### What the model sees
 
-普通 ACP 文字 prompt 会成为一条 human `user/message`，进入标准 dsh 请求。以斜杠开头的 prompt 会先解析真实 `ctx.commands` 条目；否则，精确匹配的用户可调用 skill 仍作为用户消息，并获得标准的已落账 skill 注入。命令发现和直接输出不进入模型历史，但命令所拥有的领域变更可能影响后续请求。
+An ordinary ACP text prompt becomes one human `user/message` and enters the standard dsh request. A slash-leading prompt resolves a real `ctx.commands` entry first; otherwise an exact user-invocable skill remains a user message and receives the standard logged skill injection. Command discovery and direct output stay outside model history, while a command-owned domain mutation may affect later requests.
 
-#### Token 影响
+#### Token effect
 
-普通 prompt 文字与其他 dsh human message 具有相同的留存 token 成本。直接命令的发现、输入和输出不增加模型 token；用户显式 skill 通过标准 skill consumer 加入其渲染后的指令，命令所拥有的领域决定后续任何模型可见投影的成本。
+Ordinary prompt text has the same retained token cost as any dsh human message. Direct command discovery, input, and output add no model tokens; a user-explicit skill adds its rendered instructions through the standard skill consumer, and a command-owned domain decides the cost of any later model-visible projection.
 
-#### KV Cache 影响
+#### KV Cache effect
 
-普通 prompt 文字追加在可复用请求前缀之后。直接命令流量不影响 cache；skill 注入会改变该请求追加的上下文，命令所拥有的模型可见变化遵循该领域的 cache 行为。
+Ordinary prompt text appends after the reusable request prefix. Direct command traffic does not affect the cache; a skill injection changes that request's appended context, and a command-owned model-visible change follows that domain's cache behavior.
 
-### UI 投影
+### UI projections
 
-#### 模型看到什么
+#### What the model sees
 
-消息、思考、工具卡片、审批、计划、标题、用量和命令更新只属于客户端。它们不增加 token，也不改变 KV cache 复用。工具结果和人工权限决定只通过普通 dsh tool-result 路径影响模型。
+Message, thought, tool-card, permission, plan, title, usage, and command updates are client-only. They add no tokens and do not change KV-cache reuse. Tool results and human permission decisions affect the model only through the ordinary dsh tool-result path.
 
-#### Token 影响
+#### Token effect
 
-ACP 更新不增加模型 token。工具结果保留普通 dsh 模型可见成本。
+The ACP updates add no model tokens. Tool results retain their ordinary dsh model-facing cost.
 
-模型生成标题使用独立的辅助请求。它只读取首条合格用户消息，最多输出 32 token，并产生所选 route 的普通用量；生成的标题及其输入封装都不会进入主 agent 历史。
+Model-generated titles use a separate auxiliary request. It reads only the first eligible human message, emits at most 32 tokens, and incurs the selected route's ordinary usage; neither the generated title nor its framing enters the main agent history.
 
-#### KV Cache 影响
+#### KV Cache effect
 
-UI 投影不影响复用。工具结果通过标准 session surface 追加，并产生该路径通常具有的 cache 影响。
+The UI projection does not affect reuse. A tool result appends through the standard session surface and has that path's ordinary cache effect.
 
-### 模型、reasoning、mode 与权限控件
+### Model, reasoning, mode, and permission controls
 
-#### 模型看到什么
+#### What the model sees
 
-Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改变下一次已组装请求所记录的 route 字段。Plan mode 通过 `ctx.planMode` 改变标准 plan 指引与退出工具行为。权限选择会改变后续工具执行，以及 sandbox 和 approval 插件拥有的标准权限说明。
+Selector and mode metadata are client-only. Model and reasoning selections change the route fields logged by the next assembled request. Plan mode changes the standard plan guidance and exit tool behavior through `ctx.planMode`. A permission selection changes later tool execution and any standard permission narration owned by the sandbox and approval plugins.
 
-#### Token 影响
+#### Token effect
 
-这些控件本身不增加模型 token。所选 route 和 effort 遵循该模型通常的 token 行为；plan mode 会加入配置的指引；权限 preset 只产生其既有 policy 投影的 token 影响。
+The controls add no model tokens themselves. A selected route and effort have that model's ordinary token behavior; plan mode adds its configured guidance; a permission preset has only the token effect of its existing policy projection.
 
-#### KV Cache 影响
+#### KV Cache effect
 
-改变 provider 或模型后，下一次请求开始使用该 route 的 cache identity。改变 reasoning effort 或 plan 指引会改变请求及其可复用前缀。权限选择遵循既有 sandbox/approval 投影行为，不会把 ACP 流量加入 prompt。
+Changing provider or model starts using that route's cache identity on the next request. Changing reasoning effort or plan guidance changes the request and therefore its reusable prefix. Permission selection follows the existing sandbox/approval projection behavior and does not add ACP traffic to the prompt.
 
-## 已知限制与后续工作
+## Known Limitations and Deferred Work
 
-- 未声明 `session/delete`。持久化 Service Definition 尚无跨 backend 的删除方法；transport 直接操作 JSONL 或 SQLite 会绕过持久化所有权与对账。
-- `session/list` 当前返回一个完整页面且省略 `updatedAt`；稳定的元数据 cursor 与低成本最后活动时间观察应由 session-query 能力提供。
-- 音频和 embedded-resource prompt block 会失败，不会静默降级。Prompt 与消息历史已经支持图片，但工具结果图片卡片仍只投影文字。
-- Session cost 只在 Harness 后端提供可靠的累计金额和币种后才会发送；当前不会按 token 价格猜测成本。
-- MCP 仅支持稳定 v1 的 stdio 与 Streamable HTTP 配置，legacy SSE 和 ACP 代理 transport 会被拒绝；Additional directories 仍不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
-- Terminal 输出在工具完成时发送，尚未增量推送。
+- `session/delete` is not advertised. The persistence Service Definition has no backend-independent deletion method; direct JSONL or SQLite manipulation in this transport would bypass persistence ownership and reconciliation.
+- `session/list` returns one complete page and omits `updatedAt`; a stable metadata cursor and cheap last-activity observation belong in the session-query capability.
+- Audio and embedded-resource prompt blocks fail instead of degrading silently. Tool-result image cards remain text-only even though prompt and message-history images are supported.
+- Session cost is sent only after a Harness backend supplies a reliable cumulative amount and currency; the bridge does not estimate cost from token prices.
+- MCP supports stable-v1 stdio and Streamable HTTP configuration only; legacy SSE and ACP-proxied transports are rejected. Additional directories remains outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
+- Terminal output is delivered at tool completion rather than incrementally.
 
-## 开发
+## Development
 
 ```sh
 npm install
@@ -214,10 +218,10 @@ npm run check:profile
 npm run verify:packed
 ```
 
-独立仓库不在运行时依赖 DeepSeek Harness checkout。开发兼容性检查使用只读的官方 checkout：设置 `DSH_HARNESS_ROOT` 后运行 `npm run test:harness`，或在仓库旁放置 `../deepseek-harness`。该命令复制当前官方 `packages/acp/acp-interactive/tests` 到忽略的临时目录，并用本仓库 `src/` 执行。`check:profile` 对账当前官方 bundle/profile 中的候选包、人类命令、必要 provider 和关键 consumer，只报告需要评审的差异，不改写发布组合；`verify:packed` 从 tarball 在仓库外干净安装并启动真实 ACP launcher。`npm run test:all` 串联仓库、官方兼容和 profile 对账检查。
+The standalone repository has no runtime dependency on a DeepSeek Harness checkout. For development compatibility, set `DSH_HARNESS_ROOT` to a read-only official checkout or place one at the sibling `../deepseek-harness` path, then run `npm run test:harness`. The command copies the current official `packages/acp/acp-interactive/tests` into an ignored temporary directory and runs those assertions against this repository's `src`. `check:profile` reconciles official candidate packages, human commands, required providers, and critical consumers, reporting review-required drift without rewriting the release composition. `verify:packed` installs the tarball outside the repository and starts the real ACP launcher. `npm run test:all` chains repository tests, official compatibility tests, and profile reconciliation.
 
-已实现范围见[设计说明](docs/design.md)，推荐开发顺序与各阶段验收条件见[后续开发路线图](docs/roadmap.md)。
+See the [design document](docs/design.md) for the implemented scope and the [development roadmap](docs/roadmap.en.md) for the recommended sequence and acceptance criteria.
 
-## 许可证
+## License
 
 [MIT](LICENSE)

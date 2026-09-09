@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -6,6 +7,16 @@ import { projectToolCall, projectToolResult, ToolPresenter } from '../src/presen
 
 const agent = {} as Agent
 const text = (value: string): ContentBlock[] => [{ type: 'text', text: value }]
+
+// Title shortening and cwd resolution use node:path, so fixtures must be
+// absolute in the running platform's flavor rather than hardcoded Windows paths.
+const root = process.platform === 'win32' ? 'C:\\' : '/'
+const work = join(root, 'work')
+const source = join(work, 'src', 'a.js')
+const sourceDisplay = join('src', 'a.js')
+const workFile = join(work, 'a.js')
+const other = join(root, 'other', 'a.js')
+const absolute = join(root, 'absolute')
 
 function registry(definition: Partial<ToolDefinition>) {
   return {
@@ -18,18 +29,18 @@ describe('interactive ACP tool presentation', () => {
     const presenter = new ToolPresenter(registry({
       presentCall: () => ({
         card: 'diff',
-        title: 'Edit C:\\work\\src\\a.js',
-        diffs: [{ path: 'C:\\work\\src\\a.js', oldText: 'old', newText: 'new' }],
-        locations: [{ path: 'C:\\work\\src\\a.js' }],
+        title: `Edit ${source}`,
+        diffs: [{ path: source, oldText: 'old', newText: 'new' }],
+        locations: [{ path: source }],
       }),
     }), () => {}, agent)
     const view = presenter.call('c1', 'edit', '{}')
-    expect(projectToolCall('c1', view, { enabled: false, cwd: 'C:\\work' })).toMatchObject({
+    expect(projectToolCall('c1', view, { enabled: false, cwd: work })).toMatchObject({
       sessionUpdate: 'tool_call',
       toolCallId: 'c1',
       kind: 'edit',
-      locations: [{ path: 'C:\\work\\src\\a.js' }],
-      content: [{ type: 'diff', path: 'C:\\work\\src\\a.js', oldText: 'old', newText: 'new' }],
+      locations: [{ path: source }],
+      content: [{ type: 'diff', path: source, oldText: 'old', newText: 'new' }],
     })
   })
 
@@ -128,20 +139,20 @@ describe('interactive ACP tool presentation', () => {
   it('projects complete and minimal generic calls', () => {
     expect(projectToolCall('g1', {
       card: 'generic',
-      title: 'Read C:\\work\\src\\a.js',
+      title: `Read ${source}`,
       kind: 'read',
       rawInput: { path: 'a.js' },
       content: [...text('pending'), { type: 'reasoning', text: 'hidden' }],
-      locations: [{ path: 'C:\\work\\src\\a.js', line: 2 }],
-    }, { enabled: false, cwd: 'C:\\work' })).toEqual({
+      locations: [{ path: source, line: 2 }],
+    }, { enabled: false, cwd: work })).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: 'g1',
-      title: 'Read src\\a.js',
+      title: `Read ${sourceDisplay}`,
       kind: 'read',
       status: 'in_progress',
       rawInput: { path: 'a.js' },
       content: [{ type: 'content', content: { type: 'text', text: 'pending' } }],
-      locations: [{ path: 'C:\\work\\src\\a.js', line: 2 }],
+      locations: [{ path: source, line: 2 }],
     })
     expect(projectToolCall('g2', { card: 'generic', title: 'Plain' }, { enabled: false, cwd: undefined }))
       .toEqual({
@@ -151,17 +162,17 @@ describe('interactive ACP tool presentation', () => {
 
   it('projects minimal diff calls and keeps titles for paths outside the workspace', () => {
     expect(projectToolCall('d1', {
-      card: 'diff', title: 'Edit C:\\other\\a.js', diffs: [],
-    }, { enabled: false, cwd: 'C:\\work' })).toEqual({
+      card: 'diff', title: `Edit ${other}`, diffs: [],
+    }, { enabled: false, cwd: work })).toEqual({
       sessionUpdate: 'tool_call',
       toolCallId: 'd1',
-      title: 'Edit C:\\other\\a.js',
+      title: `Edit ${other}`,
       kind: 'edit',
       status: 'in_progress',
     })
     expect(projectToolCall('d2', {
       card: 'diff', title: 'Edit a.js', diffs: [{ path: 'a.js', oldText: null, newText: 'new' }], locations: [],
-    }, { enabled: false, cwd: 'C:\\work' })).toMatchObject({
+    }, { enabled: false, cwd: work })).toMatchObject({
       content: [{ type: 'diff', path: 'a.js', oldText: null, newText: 'new' }],
       locations: [],
     })
@@ -170,18 +181,18 @@ describe('interactive ACP tool presentation', () => {
   it('projects terminal call capability, descriptions, and cwd resolution', () => {
     expect(projectToolCall('t1', {
       card: 'terminal', title: 'pnpm test', description: 'Run tests', cwd: 'packages/acp',
-    }, { enabled: true, cwd: 'C:\\work' })).toMatchObject({
+    }, { enabled: true, cwd: work })).toMatchObject({
       content: [
         { type: 'content', content: { type: 'text', text: 'Run tests' } },
         { type: 'terminal', terminalId: 't1' },
       ],
-      _meta: { terminal_info: { terminal_id: 't1', cwd: 'C:\\work\\packages\\acp' } },
+      _meta: { terminal_info: { terminal_id: 't1', cwd: join(work, 'packages', 'acp') } },
     })
     expect(projectToolCall('t2', {
-      card: 'terminal', title: 'pwd', cwd: 'C:\\absolute',
-    }, { enabled: true, cwd: 'C:\\work' })).toMatchObject({
+      card: 'terminal', title: 'pwd', cwd: absolute,
+    }, { enabled: true, cwd: work })).toMatchObject({
       content: [{ type: 'terminal', terminalId: 't2' }],
-      _meta: { terminal_info: { cwd: 'C:\\absolute' } },
+      _meta: { terminal_info: { cwd: absolute } },
     })
     expect(projectToolCall('t3', {
       card: 'terminal', title: 'pwd', cwd: 'relative',
@@ -190,16 +201,16 @@ describe('interactive ACP tool presentation', () => {
     })
     expect(projectToolCall('t4', {
       card: 'terminal', title: 'pwd',
-    }, { enabled: false, cwd: 'C:\\work' })).not.toHaveProperty('content')
+    }, { enabled: false, cwd: work })).not.toHaveProperty('content')
     expect(projectToolCall('t5', {
       card: 'terminal', title: 'pwd',
-    }, { enabled: true, cwd: 'C:\\work' })).toMatchObject({
-      _meta: { terminal_info: { cwd: 'C:\\work' } },
+    }, { enabled: true, cwd: work })).toMatchObject({
+      _meta: { terminal_info: { cwd: work } },
     })
   })
 
   it('projects every completed result card and optional field', () => {
-    const terminal = { enabled: false, cwd: 'C:\\work' }
+    const terminal = { enabled: false, cwd: work }
     expect(projectToolResult('g', { card: 'generic', title: 'Done', content: text('ok') }, true, terminal))
       .toMatchObject({ status: 'failed', title: 'Done', content: [{ type: 'content' }] })
     expect(projectToolResult('g2', { card: 'generic' }, false, terminal)).toEqual({
@@ -218,9 +229,9 @@ describe('interactive ACP tool presentation', () => {
 
   it('projects completed diffs with optional title and content', () => {
     expect(projectToolResult('d1', {
-      card: 'diff', title: 'Edit C:\\work\\a.js', diffs: [{ path: 'C:\\work\\a.js', oldText: 'a', newText: 'b' }],
-    }, false, { enabled: false, cwd: 'C:\\work' })).toMatchObject({
-      title: 'Edit a.js', content: [{ type: 'diff', path: 'C:\\work\\a.js' }],
+      card: 'diff', title: `Edit ${workFile}`, diffs: [{ path: workFile, oldText: 'a', newText: 'b' }],
+    }, false, { enabled: false, cwd: work })).toMatchObject({
+      title: 'Edit a.js', content: [{ type: 'diff', path: workFile }],
     })
     expect(projectToolResult('d2', { card: 'diff', diffs: [] }, false, { enabled: false, cwd: undefined }))
       .toEqual({ sessionUpdate: 'tool_call_update', toolCallId: 'd2', status: 'completed' })
@@ -247,10 +258,10 @@ describe('interactive ACP tool presentation', () => {
   })
 
   it('keeps titles when a path is the workspace or its parent', () => {
-    const same: ToolCallView = { card: 'generic', title: 'Read C:\\work', locations: [{ path: 'C:\\work' }] }
-    expect(projectToolCall('same', same, { enabled: false, cwd: 'C:\\work' })).toMatchObject({ title: 'Read C:\\work' })
-    const parent: ToolCallView = { card: 'generic', title: 'Read C:\\', locations: [{ path: 'C:\\' }] }
-    expect(projectToolCall('parent', parent, { enabled: false, cwd: 'C:\\work' })).toMatchObject({ title: 'Read C:\\' })
+    const same: ToolCallView = { card: 'generic', title: `Read ${work}`, locations: [{ path: work }] }
+    expect(projectToolCall('same', same, { enabled: false, cwd: work })).toMatchObject({ title: `Read ${work}` })
+    const parent: ToolCallView = { card: 'generic', title: `Read ${root}`, locations: [{ path: root }] }
+    expect(projectToolCall('parent', parent, { enabled: false, cwd: work })).toMatchObject({ title: `Read ${root}` })
   })
 
   it('guards closed presentation unions', () => {

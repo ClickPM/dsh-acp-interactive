@@ -304,12 +304,13 @@ it('executes a discovered human command and a selected model tool through real A
   await Promise.all([mkdir(home), mkdir(agentsHome), mkdir(sessions)])
   await writeFile(join(root, 'stage-b-marker.ts'), 'export const stageB = true\n')
   const mock = await mockToolServer()
+  // credentials-local refuses a credentials file readable beyond its owner on POSIX.
   await writeFile(join(home, '.credentials.yaml'), [
     'version: 1',
     'refs:',
     '  STAGE_B_API_KEY: test-key',
     '',
-  ].join('\n'))
+  ].join('\n'), { mode: 0o600 })
   await writeFile(join(home, 'settings.yaml'), [
     'llm-pi-ai:',
     '  providers:',
@@ -407,7 +408,8 @@ it('runs a session-scoped stdio MCP tool through the built launcher', async () =
     callId: 'launcher-mcp-echo',
     completion: 'MCP complete',
   })
-  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  LAUNCHER_MCP_KEY: test-key\n')
+  // credentials-local refuses a credentials file readable beyond its owner on POSIX.
+  await writeFile(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  LAUNCHER_MCP_KEY: test-key\n', { mode: 0o600 })
   await writeFile(join(home, 'settings.yaml'), [
     'llm-pi-ai:',
     '  providers:',

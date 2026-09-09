@@ -13,7 +13,14 @@ import { compositionPackages } from './profile-audit-lib.mjs'
 
 const execFileAsync = promisify(execFile)
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const npmCli = resolve(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js')
+// `npm run` exports its own CLI path; the fallback mirrors the Windows and
+// POSIX install layouts for a direct `node scripts/...` invocation.
+const npmCli = process.env.npm_execpath ?? resolve(
+  dirname(process.execPath),
+  ...(process.platform === 'win32'
+    ? ['node_modules', 'npm', 'bin', 'npm-cli.js']
+    : ['..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js']),
+)
 const root = await mkdtemp(join(tmpdir(), 'dsh-acp-packed-'))
 
 try {
