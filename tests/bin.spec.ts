@@ -34,6 +34,7 @@ function startLauncher(root: string, home: string, sessions: string): LauncherPr
       DSH_HOME: home,
       DSH_ACP_SESSIONS_ROOT: sessions,
       DSH_PERMISSION_MODE: 'danger-full-access',
+      DEEPSEEK_API_KEY: 'sk-launcher-test',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -255,6 +256,7 @@ it('boots without a Harness checkout and publishes user providers plus official 
       DSH_HOME: home,
       DSH_AGENTS_HOME: agentsHome,
       DSH_ACP_SESSIONS_ROOT: sessions,
+      DEEPSEEK_API_KEY: 'sk-launcher-test',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -274,10 +276,14 @@ it('boots without a Harness checkout and publishes user providers plus official 
     const session = await client.newSession({ cwd: root, mcpServers: [] })
     const model = session.configOptions?.find(option => option.id === 'model')
     expect(model?.type).toBe('select')
-    const update = await waitForUpdate(updates, candidate => candidate.sessionUpdate === 'config_option_update'
-      && JSON.stringify(candidate).includes('local-probe'))
-    expect(update).toBeDefined()
-    expect(JSON.stringify(update)).toContain('local-probe')
+    // session/new waits for the credentials service, so the user provider directory is
+    // usually published before the session exists and already sits in configOptions;
+    // a slower directory refresh arrives as a config_option_update instead.
+    if (!JSON.stringify(model).includes('local-probe')) {
+      const update = await waitForUpdate(updates, candidate => candidate.sessionUpdate === 'config_option_update'
+        && JSON.stringify(candidate).includes('local-probe'))
+      expect(update).toBeDefined()
+    }
     const commandUpdate = await waitForUpdate(
       updates,
       candidate => candidate.sessionUpdate === 'available_commands_update',
@@ -333,6 +339,7 @@ it('executes a discovered human command and a selected model tool through real A
       DSH_ACP_SESSIONS_ROOT: sessions,
       DSH_PERMISSION_MODE: 'danger-full-access',
       STAGE_B_API_KEY: 'test-key',
+      DEEPSEEK_API_KEY: 'sk-launcher-test',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -356,8 +363,10 @@ it('executes a discovered human command and a selected model tool through real A
       && update.content.type === 'text' && update.content.text.includes('No goal is currently set'))).toBe(true)
     expect(mock.requests).toHaveLength(0)
 
-    expect(await waitForUpdate(updates, update => update.sessionUpdate === 'config_option_update'
-      && JSON.stringify(update).includes('local-probe'))).toBeDefined()
+    if (!JSON.stringify(session.configOptions).includes('local-probe')) {
+      expect(await waitForUpdate(updates, update => update.sessionUpdate === 'config_option_update'
+        && JSON.stringify(update).includes('local-probe'))).toBeDefined()
+    }
     await client.setSessionConfigOption({
       sessionId: session.sessionId,
       configId: 'model',
@@ -432,6 +441,7 @@ it('runs a session-scoped stdio MCP tool through the built launcher', async () =
       DSH_ACP_SESSIONS_ROOT: sessions,
       DSH_PERMISSION_MODE: 'danger-full-access',
       LAUNCHER_MCP_KEY: 'test-key',
+      DEEPSEEK_API_KEY: 'sk-launcher-test',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   })

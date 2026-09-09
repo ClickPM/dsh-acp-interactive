@@ -55,10 +55,58 @@ returns an agent-type method whose description names its `--setup` command.
   show an action it cannot perform; the stable text ties `terminal` entries
   to the capability.
 
+## Update: the `auth_required` gate (1.0.6)
+
+Advertising a method turned out to be necessary but not sufficient. Zed (and
+the ACP model generally) renders `authMethods` only when a request fails
+with the `auth_required` error; a `session/new` that succeeds without a key
+simply hides the method until the first model request fails. Removing the
+credentials file in Zed produced exactly that: no button, then an error in
+the thread.
+
+`session/new` therefore returns `RequestError.authRequired` when both hold:
+
+1. the composition's configured default `provider` is the official DeepSeek
+   route (`deepseek-official`), the route the advertised method configures;
+2. the composed credentials service reports `describe(DEEPSEEK_API_KEY)` as
+   not configured.
+
+The boundary from the decision above holds: the transport never reads the
+value (`describe`, not `resolve`), never assumes the route for deployments
+that pick another default provider, and skips the check when no credentials
+service is composed. `describe` is re-read per call, so the key written by
+`--setup` is seen by the next `session/new` on the same connection, which is
+the retry Zed performs after terminal authentication. `session/load` and
+`session/resume` are not gated: a restored session's route comes from its
+log, and a missing key there still fails explicitly at the model request.
+
+One startup race had to be handled explicitly. `credentials-local` stays in
+Cordis's `LOADING` state while it canonicalizes and starts watching a
+still-absent credentials file — several seconds on Windows — and the strict
+`ctx.get('credentials')` every Harness consumer uses returns `undefined`
+until the fiber is `ACTIVE`, at which point consumers fall back to
+environment variables without noticing. A client's first `session/new`
+arrives inside that window. The gate therefore distinguishes "not composed"
+(non-strict lookup also empty: return at once) from "composed but starting"
+(wait, polling every 50 ms, bounded by `CREDENTIALS_READY_TIMEOUT_MS`
+= 10 s and the request's abort signal), and only then reads `describe()`,
+whose snapshot is complete once the initial load finished. `describe()`
+serves the in-memory snapshot, so a key written while the server runs is
+seen after the provider's debounced watcher reloads it (about 100 ms), which
+is well inside the human round trip of a terminal login.
+
+Real-launcher tests that create sessions on the default route now run with
+`DEEPSEEK_API_KEY` set; a dedicated launcher test covers the gate,
+`authenticate`, and the pickup of a key stored afterwards, and unit tests
+cover the readiness wait, its bound, abort, and the uncomposed case.
+
 ## Consequences
 
 - Clients without terminal authentication now show one authentication
   action that succeeds instantly; the useful part is its description.
+- Opening a thread without a configured key yields the authentication
+  action immediately; clients that do not implement `auth_required` still
+  see the method in `initialize`.
 - The Registry submission (agentclientprotocol/registry#585) moves to the
   `dsh-acp-interactive/` directory; `registry-auth.yml` and
   `check-registry-entry.mjs` follow the entry's `id` automatically.

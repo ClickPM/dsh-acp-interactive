@@ -123,6 +123,47 @@ describe('interactive ACP bridge edges', () => {
     }
   })
 
+  it('gates session/new on the DeepSeek credential only for the official default route', async () => {
+    let configured = false
+    const credentials = { describe: () => Promise.resolve({ configured, writable: true }) }
+
+    // The official route without a key fails with auth_required before any agent exists.
+    harness = await makeHarness([], { provider: 'deepseek-official', model: 'mock' })
+    harness.ctx.provide('credentials', credentials)
+    harness.ctx.llm.registerAdapter(['deepseek-official'], harness.adapter)
+    await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await expect(harness.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
+      .rejects.toMatchObject({ code: -32000, message: expect.stringContaining('--setup') })
+    expect(harness.persisted.size).toBe(0)
+
+    // The next session/new re-reads the configured state on the same connection.
+    configured = true
+    const created = await harness.client.newSession({ cwd: process.cwd(), mcpServers: [] })
+    expect(typeof created.sessionId).toBe('string')
+
+    // Another default provider is never gated, whatever the DeepSeek key state.
+    const other = await makeHarness([])
+    try {
+      other.ctx.provide('credentials', { describe: () => Promise.resolve({ configured: false, writable: true }) })
+      await other.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+      await expect(other.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
+        .resolves.toMatchObject({ sessionId: expect.any(String) })
+    } finally {
+      await other.dispose()
+    }
+
+    // Without a composed credentials service the transport does not guess.
+    const bare = await makeHarness([], { provider: 'deepseek-official', model: 'mock' })
+    try {
+      bare.ctx.llm.registerAdapter(['deepseek-official'], bare.adapter)
+      await bare.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+      await expect(bare.client.newSession({ cwd: process.cwd(), mcpServers: [] }))
+        .resolves.toMatchObject({ sessionId: expect.any(String) })
+    } finally {
+      await bare.dispose()
+    }
+  })
+
   it('validates session parameters and unknown session operations', async () => {
     harness = await makeHarness([])
     await initialize(harness)

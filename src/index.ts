@@ -20,7 +20,6 @@ import {
   RequestError,
   type AgentConnection,
   type AnyMessage,
-  type AuthMethod,
   type AuthenticateRequest,
   type AvailableCommand,
   type CancelNotification,
@@ -69,6 +68,7 @@ import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
 import { isUserInvocable } from '@deepseek-ai/dsh-skill'
+import { assertSessionCredential, authMethodsFor } from './auth.js'
 import { admitPrompt, admittedCommandText, InteractivePromptError, projectImage } from './content.js'
 import { turnEndToStopReason } from './codec.js'
 import {
@@ -107,32 +107,6 @@ const AGENT_NAME = 'dsh-acp-interactive'
 const PACKAGE_VERSION = (JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ) as { version: string }).version
-
-/**
- * One `deepseek-api-key` method is always advertised. Clients that declare
- * terminal authentication (stable `auth.terminal` or the Registry's legacy
- * `_meta["terminal-auth"]` flag) get the `--setup` terminal method; other
- * clients get an agent-type entry carrying the same instructions, so a client
- * never sees an empty list and mistakes it for "no authentication needed".
- */
-function authMethodsFor(capabilities: InitializeRequest['clientCapabilities']): AuthMethod[] {
-  const terminal = capabilities?.auth?.terminal === true
-    || capabilities?._meta?.['terminal-auth'] === true
-  if (terminal) {
-    return [{
-      id: 'deepseek-api-key',
-      name: 'Configure DeepSeek API key',
-      description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
-      type: 'terminal',
-      args: ['--setup'],
-    }]
-  }
-  return [{
-    id: 'deepseek-api-key',
-    name: 'Configure DeepSeek API key',
-    description: 'Run `dsh-acp-interactive --setup` in a terminal to store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store, or set DEEPSEEK_API_KEY in the environment.',
-  }]
-}
 
 export const name = 'acp-interactive'
 /** Interactive UI registries; concrete model, skill, and tool providers remain composition choices. */
@@ -784,6 +758,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         assertOpen()
         validateSessionParams(params)
         const mcpConfigs = validateMcpServers(params.mcpServers, params.cwd)
+        await assertSessionCredential(ctx, config, signal)
+        signal.throwIfAborted()
         const sessionId = SessionId(randomUUID())
         const settled = Promise.withResolvers<void>()
         const start: StartOperation = {

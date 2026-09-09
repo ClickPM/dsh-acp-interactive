@@ -5,9 +5,8 @@
 
 import { createInterface } from 'node:readline'
 import { Writable, type Readable } from 'node:stream'
-import { credentialRef, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
-
-const DEEPSEEK_API_KEY = credentialRef('DEEPSEEK_API_KEY')
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
+import { DEEPSEEK_API_KEY } from './auth.js'
 
 interface SetupIO {
   input: Readable
