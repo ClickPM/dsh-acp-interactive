@@ -103,6 +103,28 @@ blocking `session/new` on the DeepSeek key would make that impossible, since
 clients offer no way past the authentication panel. A fresh installation has
 only the DeepSeek route and still gets the prompt.
 
+Two more facts surfaced when the panel finally appeared in Zed (1.0.8).
+First, the button did nothing: Zed's `terminal_auth_task` handles a stable
+`type: "terminal"` method only behind its `AcpBetaFeatureFlag` and otherwise
+parses a legacy `_meta["terminal-auth"]` object on the method
+(`{ label, command, args?, env? }`, `command` required) — the format
+opencode ships. The method therefore carries both. The legacy object cannot
+rely on PATH or on the agent's configured command, so it names
+`process.execPath` and this package's own `bin.js` with `--setup`, valid for
+a global install, a Registry `npx` cache, and a checkout; `DSH_HOME` is
+forwarded when the server was started with one so setup writes the same
+home. Second, Zed retries `session/new` the instant the setup terminal
+exits, while the credential provider's debounced watcher loads the new file
+about 100 ms later; the gate now keeps re-reading `describe()` for
+`CREDENTIAL_SETTLE_MS` (1 s) before answering `auth_required`, which costs a
+fresh installation one second before its first authentication panel.
+
+Probing the built launcher by hand also showed that it did not exit when its
+stdin closed: the plugin quiesces the connection, but `bin.ts` only exited
+on `SIGINT`/`SIGTERM`, and the composition's file watchers kept the event
+loop alive. The launcher now disposes the composition and exits on stdin
+`end` as well, which is what a client closing the transport means.
+
 Real-launcher tests that create sessions on the default route now run with
 `DEEPSEEK_API_KEY` set; a dedicated launcher test covers the gate,
 `authenticate`, and the pickup of a key stored afterwards, and unit tests

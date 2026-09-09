@@ -46,6 +46,10 @@ dsh-acp-interactive --setup
 
 ![权限 preset 选择器（read-only、workspace-write、danger-full-access）与推理强度选择器（Default、Off、Low、High、Max）](assets/zed-controls.png)
 
+## 1.0.8
+
+`1.0.8` 让 `Configure DeepSeek API key` 操作在 Zed 里真正拉起 `--setup`。Zed 的稳定版只通过方法上旧的 `_meta["terminal-auth"]` 对象执行终端认证（对稳定 `type: "terminal"` 方法的处理在 beta 标志之后），且该对象必须自带可执行文件；方法现在携带它，指向运行本服务的 Node 可执行文件和本包自己的 `bin.js --setup`——全局安装、Registry 的 `npx` 安装、源码检出都成立，服务以 `DSH_HOME` 启动时会转发该变量。`session/new` 在回答 `auth_required` 前还会持续一秒重读未配置的 key，因为 Zed 在 setup 终端退出的瞬间就重试，而凭据 provider 的 watcher 要在写入后约 100 ms 才加载到。launcher 现在还会在客户端关闭其 stdin 后自行退出；此前组合中的文件 watcher 会让进程一直活到收到信号为止。
+
 ## 1.0.7
 
 `1.0.7` 把 `auth_required` 门控收窄到模型目录里只有 DeepSeek 官方 provider 的部署。`settings.yaml` 里加了 `llm-pi-ai` 路由的用户在没有 DeepSeek key 时不再被挡在 session 之外，可以先开会话再切换到那些路由；缺少 DeepSeek key 只在真正使用 DeepSeek 路由时才报错。全新安装仍会在第一次提问前看到 `Configure DeepSeek API key` 操作。
@@ -91,7 +95,9 @@ file credential。此流程只保存凭据，不会发送网络请求；第一�
 `initialize` 始终公布一个 `deepseek-api-key` 认证方法。声明 ACP terminal
 authentication 的客户端（稳定的 `clientCapabilities.auth.terminal` 或旧的
 `_meta["terminal-auth"]` 标志）收到的是 `terminal` 类型方法，会用同一个
-`--setup` 流程打开交互式终端；不声明该能力的客户端收到的是普通 agent 类型方法，
+`--setup` 流程打开交互式终端；对于稳定版只认方法上旧 `_meta["terminal-auth"]`
+对象的 Zed，该方法同时携带这个对象，指向运行本服务的 Node 可执行文件和本包的
+`bin.js`；不声明该能力的客户端收到的是普通 agent 类型方法，
 其描述指向 `dsh-acp-interactive --setup` 和 `DEEPSEEK_API_KEY`，`authenticate`
 随即成功返回——凭据由 Harness 凭据存储在第一次模型请求时解析，不由 transport
 处理。terminal setup 是独立进程，不会启动 ACP transport；正常服务模式仍保留

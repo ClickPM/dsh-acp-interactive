@@ -46,6 +46,10 @@ The `/` palette lists the human commands discovered from the composed Harness pl
 
 ![Permission preset selector (read-only, workspace-write, danger-full-access) and reasoning-effort selector (Default, Off, Low, High, Max)](assets/zed-controls.png)
 
+## 1.0.8
+
+Version `1.0.8` makes the `Configure DeepSeek API key` action actually launch `--setup` in Zed. Zed's stable releases run terminal authentication only through the legacy `_meta["terminal-auth"]` object on the method (its handling of the stable `type: "terminal"` method sits behind a beta flag), and that object must name an executable itself; the method now carries it, pointing at the Node executable running the server and this package's own `bin.js --setup`, which holds for a global install, a Registry `npx` install, and a checkout alike, with `DSH_HOME` forwarded when the server was started with one. `session/new` also keeps re-reading an unconfigured key for one second before answering `auth_required`, so the retry Zed issues the instant the setup terminal exits sees the key the credential provider's watcher loads about 100 ms after the write. The launcher now also exits on its own when the client closes its stdin; previously the composition's file watchers kept the process alive until a signal arrived.
+
 ## 1.0.7
 
 Version `1.0.7` narrows the `auth_required` gate to deployments whose model directory offers only the official DeepSeek provider. A user whose `settings.yaml` adds `llm-pi-ai` routes is no longer blocked from opening a session and switching to those routes when no DeepSeek key is stored; a missing DeepSeek key then fails only when the DeepSeek route is actually used. Fresh installations still see the `Configure DeepSeek API key` action before the first prompt.
@@ -94,7 +98,9 @@ key.
 Clients that declare ACP terminal authentication (stable
 `clientCapabilities.auth.terminal` or the legacy `_meta["terminal-auth"]`
 flag) receive it as a `terminal` method that opens the same interactive
-`--setup` flow. Clients without that capability receive it as a plain
+`--setup` flow; for Zed, whose stable releases act only on the legacy
+`_meta["terminal-auth"]` object, the method also carries that object,
+naming the Node executable running the server and this package's `bin.js`. Clients without that capability receive it as a plain
 agent-type method whose description points at `dsh-acp-interactive --setup`
 and `DEEPSEEK_API_KEY`; `authenticate` then succeeds immediately, because
 credentials are resolved by the Harness credential store at the first model

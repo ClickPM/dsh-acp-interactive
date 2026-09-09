@@ -1,6 +1,6 @@
 {
   "name": "deepseekharness-acp-interactive",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Editor-facing Agent Client Protocol (ACP) server for Zed and other ACP clients, composed from published DeepSeek Harness plugins.",
   "license": "MIT",
   "repository": {
