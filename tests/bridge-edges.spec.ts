@@ -78,13 +78,22 @@ describe('interactive ACP bridge edges', () => {
       agentInfo: { name: 'dsh-acp-interactive', version: packageVersion },
       agentCapabilities: { promptCapabilities: { image: false, audio: false, embeddedContext: false } },
     })
-    expect(response.authMethods).toEqual([{
+    expect(response.authMethods).toHaveLength(1)
+    expect(response.authMethods?.[0]).toMatchObject({
       id: 'deepseek-api-key',
       name: 'Configure DeepSeek API key',
       description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
       type: 'terminal',
       args: ['--setup'],
-    }])
+      // Zed's stable releases launch terminal auth only through this legacy object.
+      _meta: {
+        'terminal-auth': {
+          label: 'Configure DeepSeek API key',
+          command: process.execPath,
+          args: [expect.stringContaining('bin.js'), '--setup'],
+        },
+      },
+    })
     await expect(harness.client.authenticate({ methodId: 'unused' })).resolves.toEqual({})
 
     const blank = await makeHarness([], {})

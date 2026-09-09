@@ -1,10 +1,21 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { assertSessionCredential, authMethodsFor } from '../src/auth.js'
 
-/** A gate context whose strict lookup turns positive after `activeAfter` polls. */
-function lookup(configured: boolean, activeAfter: number, composed = true, providers = ['deepseek-official']) {
+/**
+ * A gate context whose strict lookup turns positive after `activeAfter` polls
+ * and whose `describe()` answers from `configured` in call order (last value repeats).
+ */
+function lookup(configured: boolean | boolean[], activeAfter: number, composed = true, providers = ['deepseek-official']) {
   let strictCalls = 0
-  const service = { describe: () => Promise.resolve({ configured, writable: true }) }
+  let describeCalls = 0
+  const answers = Array.isArray(configured) ? configured : [configured]
+  const service = {
+    describe: () => {
+      const value = answers[Math.min(describeCalls, answers.length - 1)]
+      describeCalls += 1
+      return Promise.resolve({ configured: value, writable: true })
+    },
+  }
   return {
     get: (name: string, strict = true) => {
       if (name !== 'credentials' || !composed) return undefined
@@ -14,25 +25,66 @@ function lookup(configured: boolean, activeAfter: number, composed = true, provi
     },
     llm: { listProviders: () => providers.map(id => ({ id })) },
     calls: () => strictCalls,
+    describes: () => describeCalls,
   }
 }
 
+const original = process.env.DSH_HOME
+
+afterEach(() => {
+  if (original === undefined) delete process.env.DSH_HOME
+  else process.env.DSH_HOME = original
+})
+
 describe('DeepSeek credential gate', () => {
   it('advertises the terminal method only to clients that declare terminal auth', () => {
-    expect(authMethodsFor({ auth: { terminal: true } })[0]).toMatchObject({ type: 'terminal', args: ['--setup'] })
+    const stable = authMethodsFor({ auth: { terminal: true } })[0]
+    expect(stable).toMatchObject({ type: 'terminal', args: ['--setup'] })
     expect(authMethodsFor({ _meta: { 'terminal-auth': true } })[0]).toMatchObject({ type: 'terminal' })
     expect(authMethodsFor({ auth: { terminal: false } })[0]).not.toHaveProperty('type')
     expect(authMethodsFor(undefined)[0]).toMatchObject({ id: 'deepseek-api-key' })
+    expect(authMethodsFor(undefined)[0]).not.toHaveProperty('_meta')
+  })
+
+  it('carries the legacy Zed terminal-auth object naming this launcher, forwarding DSH_HOME only when set', () => {
+    delete process.env.DSH_HOME
+    const bare = authMethodsFor({ auth: { terminal: true } })[0]
+    expect(bare).not.toHaveProperty('env')
+    expect(bare?._meta).toEqual({
+      'terminal-auth': {
+        label: 'Configure DeepSeek API key',
+        command: process.execPath,
+        args: [expect.stringContaining('bin.js'), '--setup'],
+        env: {},
+      },
+    })
+
+    process.env.DSH_HOME = 'D:/dsh-home'
+    const scoped = authMethodsFor({ auth: { terminal: true } })[0]
+    expect(scoped).toMatchObject({ env: { DSH_HOME: 'D:/dsh-home' } })
+    expect(scoped?._meta).toMatchObject({ 'terminal-auth': { env: { DSH_HOME: 'D:/dsh-home' } } })
   })
 
   it('waits for a composed credentials service that is still starting', async () => {
     const ctx = lookup(false, 3)
-    await expect(assertSessionCredential(ctx, { provider: 'deepseek-official' }))
+    await expect(assertSessionCredential(ctx, { provider: 'deepseek-official' }, undefined, undefined, 0))
       .rejects.toMatchObject({ code: -32000 })
     expect(ctx.calls()).toBe(4)
 
     const ready = lookup(true, 2)
     await expect(assertSessionCredential(ready, { provider: 'deepseek-official' })).resolves.toBeUndefined()
+  })
+
+  it('keeps re-reading an unconfigured key for the settle window', async () => {
+    const late = lookup([false, false, true], 0)
+    await expect(assertSessionCredential(late, { provider: 'deepseek-official' }, undefined, undefined, 2_000))
+      .resolves.toBeUndefined()
+    expect(late.describes()).toBe(3)
+
+    const never = lookup(false, 0)
+    await expect(assertSessionCredential(never, { provider: 'deepseek-official' }, undefined, undefined, 250))
+      .rejects.toMatchObject({ code: -32000, message: expect.stringContaining('--setup') })
+    expect(never.describes()).toBeGreaterThan(1)
   })
 
   it('does not hold session/new past the readiness bound or for an uncomposed service', async () => {

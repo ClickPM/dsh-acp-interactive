@@ -6,6 +6,7 @@
  */
 
 import { setTimeout as sleep } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { RequestError, type AuthMethod, type InitializeRequest } from '@agentclientprotocol/sdk'
 import { credentialRef, type CredentialProvider } from '@deepseek-ai/dsh-credentials'
@@ -18,15 +19,49 @@ export const DEEPSEEK_PROVIDER = 'deepseek-official'
 
 const METHOD_ID = 'deepseek-api-key'
 const METHOD_NAME = 'Configure DeepSeek API key'
+const SETUP_ARGS = ['--setup']
 const SETUP_HINT = 'Run `dsh-acp-interactive --setup` in a terminal to store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store, or set DEEPSEEK_API_KEY in the environment.'
 
 /** How long `session/new` waits for a composed credentials service that is still starting. */
 export const CREDENTIALS_READY_TIMEOUT_MS = 10_000
 
+/**
+ * How long `session/new` keeps re-reading an unconfigured key before failing.
+ * A client retries `session/new` the moment the `--setup` terminal exits, and
+ * the credential provider's debounced watcher reloads the file about 100 ms
+ * after the write; without this grace a successful setup would be answered
+ * with a second `auth_required`.
+ */
+export const CREDENTIAL_SETTLE_MS = 1_000
+
 type CredentialsLookup = Pick<Context, 'get'>
 type Credentials = Pick<CredentialProvider, 'describe'>
 /** The slice of the plugin context the gate reads: service lookup and the provider directory. */
 export type GateContext = CredentialsLookup & { llm: { listProviders(): ReadonlyArray<{ id: string }> } }
+
+/** Environment the setup process must share with this server: only an explicit home override. */
+function setupEnvironment(): Record<string, string> {
+  const home = process.env.DSH_HOME
+  return home === undefined || home.length === 0 ? {} : { DSH_HOME: home }
+}
+
+/**
+ * Zed's stable releases run terminal methods only through this legacy object
+ * on the method (its stable `type: "terminal"` path sits behind a beta flag),
+ * and the object must name an executable itself. The running Node executable
+ * plus this package's own `bin.js` holds for every distribution - a global
+ * install, a registry `npx` cache, or a checkout - without relying on PATH.
+ */
+function legacyTerminalMeta(): Record<string, unknown> {
+  return {
+    'terminal-auth': {
+      label: METHOD_NAME,
+      command: process.execPath,
+      args: [fileURLToPath(new URL('./bin.js', import.meta.url)), ...SETUP_ARGS],
+      env: setupEnvironment(),
+    },
+  }
+}
 
 /**
  * One `deepseek-api-key` method is always advertised. Clients that declare
@@ -39,12 +74,15 @@ export function authMethodsFor(capabilities: InitializeRequest['clientCapabiliti
   const terminal = capabilities?.auth?.terminal === true
     || capabilities?._meta?.['terminal-auth'] === true
   if (terminal) {
+    const env = setupEnvironment()
     return [{
       id: METHOD_ID,
       name: METHOD_NAME,
       description: 'Store DEEPSEEK_API_KEY in the local DeepSeek Harness credential store.',
       type: 'terminal',
-      args: ['--setup'],
+      args: SETUP_ARGS,
+      ...Object.keys(env).length === 0 ? {} : { env },
+      _meta: legacyTerminalMeta(),
     }]
   }
   return [{ id: METHOD_ID, name: METHOD_NAME, description: SETUP_HINT }]
@@ -94,12 +132,18 @@ export async function assertSessionCredential(
   config: { provider?: string },
   signal?: AbortSignal,
   readyTimeoutMs = CREDENTIALS_READY_TIMEOUT_MS,
+  settleMs = CREDENTIAL_SETTLE_MS,
 ): Promise<void> {
   if (config.provider !== DEEPSEEK_PROVIDER) return
   if (ctx.llm.listProviders().some(provider => provider.id !== DEEPSEEK_PROVIDER)) return
   const credentials = await activeCredentials(ctx, signal, readyTimeoutMs)
   if (credentials === undefined) return
-  const info = await credentials.describe(DEEPSEEK_API_KEY)
-  if (info.configured) return
+  const deadline = Date.now() + settleMs
+  for (;;) {
+    const info = await credentials.describe(DEEPSEEK_API_KEY)
+    if (info.configured) return
+    if (Date.now() >= deadline) break
+    await sleep(100, undefined, { signal })
+  }
   throw RequestError.authRequired(undefined, `DEEPSEEK_API_KEY is not configured. ${SETUP_HINT}`)
 }
