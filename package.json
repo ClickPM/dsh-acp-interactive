@@ -37,7 +37,9 @@
     "config",
     "docs",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "CHANGELOG.md",
+    "CHANGELOG.zh.md"
   ],
   "scripts": {
     "build": "tsdown",
