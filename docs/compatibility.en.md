@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-This matrix applies to `deepseekharness-acp-interactive 1.1.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
+This matrix applies to `deepseekharness-acp-interactive 1.3.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
 
 | Zed version | Status | Capability scope |
 | --- | --- | --- |
@@ -19,6 +19,7 @@ This matrix applies to `deepseekharness-acp-interactive 1.1.0`, stable ACP v1, a
 - Request-cancellation tests cancel one long prompt over a real NDJSON connection, prove that another session is unaffected, and then reuse both sessions.
 - Session-lifecycle coverage runs two real launchers concurrently with one shared JSONL source and separate in-memory SQLite derived indexes, proving immediate cross-process list/load/resume after close and non-destructive repeated close/restore.
 - The current composition has no real boolean domain option, so it displays no invented toggle even when Zed advertises support. Cost is likewise sent only when Harness supplies a trustworthy cumulative amount.
+- Subagent coverage drives the built launcher under the `read-only` preset through one real `subagent` delegation and, over in-memory connections, parallel and nested delegations, `session/cancel`, and bridge disposal while a child is running. Each proves the delegation card settles inside the parent turn with no child permission request and no update after settlement. Zed's ACP client replaces card content on `tool_call_update` and stores a `subagent_session_info` meta only for its native agent, so the child transcript is resent whole and the child identity travels in `_meta.dsh_subagent`.
 
 ## Pinned upstream baseline
 

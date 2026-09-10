@@ -240,11 +240,17 @@ class HarnessSessionQuery extends SessionQueryEngine {
   }
 }
 
+/**
+ * One scripted model response: chunks, a hang until abort, or a function of
+ * the request, so a response can depend on which agent is asking.
+ */
+export type ScriptEntry = StreamChunk[] | 'hang' | ((options: GenerateOptions) => StreamChunk[] | 'hang')
+
 /** Scripted model adapter used by bridge tests. */
 class MockAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
 
-  constructor(private readonly script: Array<StreamChunk[] | 'hang'>) {
+  constructor(private readonly script: ScriptEntry[]) {
     super()
   }
 
@@ -268,8 +274,9 @@ class MockAdapter extends LlmAdapter {
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(options)
-    const entry = this.script.shift()
-    if (entry === undefined) throw new Error('mock script exhausted')
+    const scripted = this.script.shift()
+    if (scripted === undefined) throw new Error('mock script exhausted')
+    const entry = typeof scripted === 'function' ? scripted(options) : scripted
     if (entry === 'hang') {
       yield { type: 'block-start', index: 0, blockType: 'text' }
       yield { type: 'text-delta', index: 0, text: 'partial' }
@@ -352,7 +359,7 @@ export interface BridgeHarness {
  * @returns connected client and captured protocol updates.
  */
 export async function makeHarness(
-  script: Array<StreamChunk[] | 'hang'>,
+  script: ScriptEntry[],
   config: Omit<InteractiveAcp.AcpInteractiveConfig, 'stream'> = { provider: 'mock', model: 'mock' },
   providers: string[] = ['mock'],
 ): Promise<BridgeHarness> {

@@ -404,6 +404,123 @@ it('executes a discovered human command and a selected model tool through real A
   }
 })
 
+it('delegates to an in-process subagent through the built launcher and settles its card', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-subagent-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  const agentsHome = join(root, 'agents')
+  const sessions = join(root, 'sessions')
+  await Promise.all([mkdir(home), mkdir(agentsHome), mkdir(sessions)])
+  // Main request 1 (the parent) delegates; every later main request — the
+  // child's one turn, then the parent's wrap-up — receives the completion.
+  const mock = await mockToolServer({
+    toolName: 'subagent',
+    toolArguments: '{"description":"Summarize the workspace","prompt":"List what is here."}',
+    callId: 'launcher-subagent',
+    completion: 'the workspace is empty',
+  })
+  await writeFile(join(home, '.credentials.yaml'), [
+    'version: 1',
+    'refs:',
+    '  SUBAGENT_API_KEY: test-key',
+    '',
+  ].join('\n'), { mode: 0o600 })
+  await writeFile(join(home, 'settings.yaml'), [
+    'llm-pi-ai:',
+    '  providers:',
+    '    local-probe:',
+    '      displayName: Local Probe',
+    '      api: openai-completions',
+    '      apiKeyEnv: SUBAGENT_API_KEY',
+    `      baseURL: ${mock.baseURL}`,
+    '      models:',
+    '        - id: probe-model',
+    '          name: Probe Model',
+    '',
+  ].join('\n'))
+  const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DSH_HOME: home,
+      DSH_AGENTS_HOME: agentsHome,
+      DSH_ACP_SESSIONS_ROOT: sessions,
+      DSH_PERMISSION_MODE: 'read-only',
+      SUBAGENT_API_KEY: 'test-key',
+      DEEPSEEK_API_KEY: 'sk-launcher-test',
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  const stderr: string[] = []
+  const updates: SessionNotification['update'][] = []
+  const permissionRequests: unknown[] = []
+  child.stderr.setEncoding('utf8')
+  child.stderr.on('data', chunk => stderr.push(String(chunk)))
+  const client = new ClientSideConnection((_agent: Agent): Client => ({
+    sessionUpdate: async update => { updates.push(update.update) },
+    requestPermission: async (request) => {
+      permissionRequests.push(request)
+      return { outcome: { outcome: 'cancelled' } }
+    },
+  }), ndJsonStream(
+    Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+    Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+  ))
+  try {
+    await client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const session = await client.newSession({ cwd: root, mcpServers: [] })
+    if (!JSON.stringify(session.configOptions).includes('local-probe')) {
+      expect(await waitForUpdate(updates, update => update.sessionUpdate === 'config_option_update'
+        && JSON.stringify(update).includes('local-probe'))).toBeDefined()
+    }
+    await client.setSessionConfigOption({
+      sessionId: session.sessionId,
+      configId: 'model',
+      value: 'local-probe:probe-model',
+    })
+    const response = await client.prompt({
+      sessionId: session.sessionId,
+      prompt: [{ type: 'text', text: 'Delegate a summary of this workspace.' }],
+    })
+    expect(response.stopReason).toBe('end_turn')
+
+    expect(updates).toContainEqual(expect.objectContaining({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'launcher-subagent',
+      title: 'subagent',
+      status: 'in_progress',
+    }))
+    const cards = updates.filter(update => update.sessionUpdate === 'tool_call_update'
+      && update.toolCallId === 'launcher-subagent')
+    const opened = cards.find(update => update.sessionUpdate === 'tool_call_update' && update.title === 'Summarize the workspace')
+    expect(opened?._meta?.['dsh_subagent']).toMatchObject({ provider: 'spawn', label: 'Summarize the workspace' })
+    const settled = cards.at(-1)
+    expect(settled).toMatchObject({
+      status: 'completed',
+      content: [
+        expect.objectContaining({
+          type: 'content',
+          content: { type: 'text', text: expect.stringContaining('- ✓ Subagent completed') },
+        }),
+        expect.objectContaining({ type: 'content', content: { type: 'text', text: 'the workspace is empty' } }),
+      ],
+      _meta: { dsh_subagent: expect.objectContaining({ stop_reason: 'completed' }) },
+    })
+    // Parent turn, child turn, parent wrap-up, and the parent's title request;
+    // the child session gets no title of its own and raises no permission request.
+    expect(mock.requests).toHaveLength(4)
+    expect(permissionRequests).toEqual([])
+    const listed = await client.listSessions({ cwd: root })
+    expect(listed.sessions.map(entry => entry.sessionId)).toEqual([session.sessionId])
+  } catch (error: unknown) {
+    throw new Error(`${String(error)}\nstderr:\n${stderr.join('')}`)
+  } finally {
+    child.kill('SIGTERM')
+    await new Promise<void>(resolve => child.once('close', () => resolve()))
+    await new Promise<void>((resolve, reject) => mock.server.close(error => error === undefined ? resolve() : reject(error)))
+  }
+})
+
 it('runs a session-scoped stdio MCP tool through the built launcher', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-acp-launcher-mcp-'))
   roots.push(root)

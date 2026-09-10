@@ -209,6 +209,37 @@
   name: '@deepseek-ai/dsh-web-fetch-http'
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
+# In-process delegation. The subagent registry and its spawn/fork backends are
+# process singletons; each delegation tool row names one backend. Children run
+# inside the parent's turn: every call waits in the foreground, so cancelling
+# or closing the editor session settles its children before the parent reports
+# idle, and each child inherits the parent's sandbox mode with approval pinned
+# to `never`, so it can never raise an ACP permission request or a question of
+# its own. `ask_user_question` is removed from every child for the same reason:
+# the bridge answers questions only for its exact root agents. Background jobs
+# and continuable children stay deferred (see config/editor-profile.json).
+- id: subagents
+  name: '@deepseek-ai/dsh-subagent'
+- id: subagent-spawn
+  name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+- id: subagent-fork
+  name: '@deepseek-ai/dsh-subagent-fork-in-process'
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: spawn
+    toolName: subagent
+    enableRunInBackground: false
+    toolFilter:
+      deny: [ask_user_question]
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  config:
+    provider: fork
+    toolName: subagent_fork
+    enableRunInBackground: false
+    toolFilter:
+      deny: [ask_user_question]
 # MCP servers are not static profile plugins. The ACP bridge composes the
 # published dsh-mcp-client dynamically inside each exact agent/session scope
 # from session/new, session/load, or session/resume request configuration.

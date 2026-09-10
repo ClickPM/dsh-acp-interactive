@@ -21,7 +21,7 @@ DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent �
 - 本仓库发布 `dsh-acp-interactive` launcher 与 `config/cordis.yml` 完整组合；Zed 直接启动安装后的命令，不依赖 DeepSeek Harness 源码 checkout。
 - ACP 只投影 dsh 已经拥有的状态，不让 Zed 代替 dsh 执行工具或扩大文件访问范围。
 
-独立 launcher 使用经过评审的 editor profile，不自动复制官方完整 profile。`config/editor-profile.json` 固化准入规则、选入能力、暂缓能力和官方参考快照；对账检查只报告候选包、人类命令、必要 provider 与关键 consumer 的变化，必须经显式评审后才修改 `config/cordis.yml`。当前选入本地 filesystem search 及其 cooperative timeout policy；web、LSP、持久终端、subagent 与 workflow 暂缓。相关决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md)。
+独立 launcher 使用经过评审的 editor profile，不自动复制官方完整 profile。`config/editor-profile.json` 固化准入规则、选入能力、暂缓能力和官方参考快照；对账检查只报告候选包、人类命令、必要 provider 与关键 consumer 的变化，必须经显式评审后才修改 `config/cordis.yml`。当前选入本地 filesystem search 及其 cooperative timeout policy、web，以及进程内 subagent；LSP、持久终端、后台／continuable subagent 与 workflow 暂缓。相关决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md) 与 [In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md)。
 
 自包含启动器的长期约束记录在 [Agent Note](agent-notes/2026-08-26-self-contained-launcher.md)。
 
@@ -115,6 +115,15 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 初始连接和工具发现采用 strict startup，任一 server 失败会销毁整个私有 host 并回滚先前 server。Load/resume 不持久化、不继承历史进程或认证配置，只使用当前请求；
 - 取消、session close、连接 teardown 与创建中断等待工具调用、transport、重连 timer、工具注册和 stdio 子进程静止。MCP 工具仍通过 Harness registry 的展示函数进入通用 ACP tool card 投影。
 
+## 第七阶段：进程内 subagent（1.3.0）
+
+- 组合已发布的 `dsh-subagent` 注册表、`spawn`／`fork` 进程内 backend 与两条 `dsh-tool-subagent` 行（`subagent`、`subagent_fork`）。委托语义完全由 Harness 拥有：子 agent 是同一注册表上的普通 Agent，拥有自己的 Session、`origin: subagent` 与 `parentSession` 血统，父 agent 只以工具结果收到子 agent 的最终输出；
+- 每次委托都在父 turn 内前台等待（`enableRunInBackground: false`）。`session/cancel`、`session/close` 与连接拆卸沿父 agent 的取消信号先停掉子 agent 再到达静止，父 loop 的调度器在 turn 结算前等待每个进行中的工具调用，因此 ACP 层不需要第二套生命周期；并行委托保留，因为工具本身声明并发安全；
+- 子 agent 继承父 session 的 sandbox 覆盖，approval policy 固定为 `never`，并通过工具行的 `toolFilter` 移除 `ask_user_question`，因此子 agent 不会向编辑器发起 permission request 或提问；bridge 的审批与提问 listener 本来也只回答精确归属的根 agent，升级路径仍归父 agent；
+- ACP 层只做归属与投影。seam 不携带父工具调用 id，按时间或 label 归属会让并行委托串卡，因此每个 `tools/execute` 分发都在自己的 delegation origin（Node `AsyncLocalStorage`）中运行，`subagent/start` 在同一异步链上发布，从而精确归属到各自的 `tool/call`；父 session 的持久 `subagent/catalog` 事件提供 label；子 session 及其后代的 `tool/call`、`tool/result`、`assistant/message` 与 `subagent/end` 折叠为父卡片内有界的 transcript，并以替换 content 的 `tool_call_update` 整体重发（Zed 按替换处理卡片 content）；父 agent 自己的 `tool/result` 经通用工具投影结算卡片并把 transcript 保留在结果之前，结算后卡片解除链接，迟到的子事件被丢弃；不投影子 agent 的 reasoning 与实时增量，只以已落账的 `assistant/message` 为来源；
+- 卡片 `_meta.dsh_subagent` 记录子 session id、provider、label 与最终 stop reason；不发送 Zed 私有的 `subagent_session_info`，因为 Zed 没有为外部 agent 消费该键的路径，而未来的消费者可能试图通过本连接打开子会话；`session/list` 排除 `origin: subagent` 或带 `parentSession` 的会话，`session/load`／`session/resume` 明确拒绝它们，与官方 `dsh-acp` 一致；
+- 后台 job、continuable child、`send_message`／`interrupt_agent`／`list_agents` 与进程外 ACP／Codex／Claude Code backend 暂缓：它们的生命周期越过父 turn，稳定 ACP v1 尚无对应表达（上游 subagents RFD agentclientprotocol/agent-client-protocol#1992 仍未合并，`claude-code-acp` 的嵌套 transcript 也依赖它）。
+
 ## 后续阶段
 
 后续开发按协议基线、Editor Profile 与 ACP 投影闭包、session-scoped MCP、完整 Session 管理、丰富内容与实时 UI 五个阶段推进。Additional directories 由独立 DSH 插件项目负责，不属于本仓库的交付路线。每个阶段的交付范围、验收条件和先后依赖见[后续开发路线图](roadmap.md)。
@@ -188,3 +197,10 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 3. new/load/resume 的任一 startup 或响应组装失败都会回滚所有已启动 server；resume 移除、更换或失败时不复用旧连接。
 4. prompt 取消、session close、连接断开和创建中断均不产生迟到工具更新，并在返回前确认 transport、timer、注册和子进程完全静止。
 5. Packed install 在 Harness checkout 外解析 MCP runtime closure 并通过真实 launcher ACP 会话。
+
+## 第七阶段验收
+
+1. 真实 launcher 在 `read-only` preset 下完成一次 `subagent` 委托：卡片以 description 为标题，`_meta.dsh_subagent` 指向子 session，结算时 transcript 在结果之前，且没有任何 permission request。
+2. 同一步骤内并行的两次委托各自归属到自己的卡片，transcript 与结果互不串流；嵌套委托在直接子 agent 之下缩进呈现。
+3. `session/cancel` 与 bridge 释放都在父 turn 内停掉子 agent，prompt 以 `cancelled` 结算，卡片状态为 `failed` 且 transcript 以 `Subagent aborted` 结尾；结算后的子事件不再产生更新。
+4. 子 session 不出现在 `session/list`，`session/load`／`session/resume` 明确拒绝；子 agent 文本不会成为顶层 `agent_message_chunk`。

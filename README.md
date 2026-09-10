@@ -62,6 +62,12 @@ Tool calls run inside the Harness sandbox. Under the `read-only` preset a write 
 
 ![The approved write card with its content, the read-back, and the created file](assets/zed-edit-result.png)
 
+## 1.3.0
+
+Version `1.3.0` adds in-process subagents. The composed profile now mounts the published `@deepseek-ai/dsh-subagent` registry with its `spawn` and `fork` backends and two delegation tools, `subagent` and `subagent_fork`: the model delegates a self-contained or conversation-seeded task and receives the child's final answer as the tool result, exactly as upstream defines it. In Zed a delegation is one tool card. The card takes the delegation's description as its title once the child is published, the child's own tool calls, replies, nested delegations, and settlement are folded into a bounded transcript inside the card while it runs, and the parent's own tool result settles the card with that transcript kept ahead of the result. The card's `_meta.dsh_subagent` names the child session, so its log can be found under the sessions root.
+
+Every delegation waits in the foreground inside the parent's turn, so `session/cancel`, `session/close`, and connection teardown stop the children before the parent reports idle; a cancelled delegation settles as a failed card whose transcript ends with `Subagent aborted`, and no child event can reach a card after its call has settled. Children inherit the parent's sandbox mode with approval pinned to `never` and lose `ask_user_question`, so a child never raises an ACP permission request or question; escalation stays with the parent. Child sessions are not editor sessions: `session/list` omits them and `session/load` and `session/resume` refuse them. Background jobs, continuable children, and the out-of-process backends stay deferred. See the [In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md).
+
 ## 1.2.0
 
 Version `1.2.0` moves the composed DeepSeek Harness baseline from `0.1.2-rc.1` to `0.1.5-rc.1`. The advertised ACP surface is unchanged: the ACP SDK pin stays at `1.4.0`, and `initialize` answers exactly as before.
@@ -110,7 +116,7 @@ npm install --global deepseekharness-acp-interactive
 
 Every published version corresponds to a `vX.Y.Z` tag and a [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases) whose assets include the tarball and its SHA-256 checksum, so an installation can be audited against the tagged source.
 
-The published tarball already contains the built `lib/`; no build step runs at install time. Installation adds the `dsh-acp-interactive` command, which loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
+The published tarball already contains the built `lib/`; no build step runs at install time. Installation adds the `dsh-acp-interactive` command, which loads the reviewed editor profile bundled in `config/cordis.yml`, which composes DeepSeek and user providers, the agent spine, model-generated session titles, file and local filesystem-search capabilities, in-process subagents, shell, permissions, persistence, human commands, and the ACP transport. At startup, Windows registers the native `pwsh` tool, while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 Before using the official DeepSeek API for the first time, run:
 
@@ -192,7 +198,7 @@ The bundled composition explicitly mounts these three provider dependencies. `se
 
 ## Protocol
 
-The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall`, `presentResult`, and durable `presentationMeta`; generic, diff, and terminal intents map to ACP cards without switching on tool names. The editor profile's new `glob` and `grep` tools execute in the published Harness filesystem-search plugin with its packaged ripgrep binary and use the same generic projection. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
+The plugin implements `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`. Text and reasoning deltas stream immediately. Tool calls use each tool's `presentCall`, `presentResult`, and durable `presentationMeta`; generic, diff, and terminal intents map to ACP cards without switching on tool names. The editor profile's new `glob` and `grep` tools execute in the published Harness filesystem-search plugin with its packaged ripgrep binary and use the same generic projection. A delegation through the `subagent` or `subagent_fork` tool is one card of the same kind: the child's events fold into the card as a bounded transcript, and the parent's tool result settles it. `todo/write`, `session/title`, request capacity, provider usage, and command-registry changes update the matching client session.
 
 After a new session receives its first eligible text prompt, Harness publishes its immediate deterministic fallback title and then asynchronously summarizes that prompt with the exact provider/model route recorded for the main request. The accepted model result is persisted as a newer `session/title` event and replaces the client title through `session_info_update`. Failure, timeout, or framed input beyond 4096 bytes keeps the fallback without delaying the main agent response. Later prompts do not repeatedly retitle the session.
 
@@ -281,9 +287,11 @@ Ordinary prompt text appends after the reusable request prefix. Direct command t
 
 Message, thought, tool-card, permission, plan, title, usage, and command updates are client-only. They add no tokens and do not change KV-cache reuse. Tool results and human permission decisions affect the model only through the ordinary dsh tool-result path.
 
+A subagent card is client-only as well. The child transcript folded into the parent's card never enters either model's context; the parent sees only the child's final output through the ordinary tool-result path, and the child sees only its delegated prompt plus the standard delegated-runtime context the harness appends.
+
 #### Token effect
 
-The ACP updates add no model tokens. Tool results retain their ordinary dsh model-facing cost.
+The ACP updates add no model tokens. Tool results retain their ordinary dsh model-facing cost. A delegation runs the child's own requests on the inherited or configured route; the parent pays for the tool call and the child's final output only.
 
 Model-generated titles use a separate auxiliary request. It reads only the first eligible human message, emits at most 32 tokens, and incurs the selected route's ordinary usage; neither the generated title nor its framing enters the main agent history.
 
@@ -313,6 +321,7 @@ Changing provider or model starts using that route's cache identity on the next 
 - Session cost is sent only after a Harness backend supplies a reliable cumulative amount and currency; the bridge does not estimate cost from token prices.
 - MCP supports stable-v1 stdio and Streamable HTTP configuration only; legacy SSE and ACP-proxied transports are rejected. Additional directories remains outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
 - Terminal output is delivered at tool completion rather than incrementally.
+- Subagents run in the foreground only. `run_in_background`, continuable children, `send_message`, `interrupt_agent`, `list_agents`, and the out-of-process ACP, Codex, and Claude Code backends are not composed. A restored session replays a delegation as its settled result card without the child transcript, and stable ACP has no child-session capability yet, so the card carries the child session id in `_meta.dsh_subagent` rather than a navigable child thread.
 
 ## Verification and ACP Registry
 

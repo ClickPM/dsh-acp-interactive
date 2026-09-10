@@ -25,6 +25,8 @@ Harness credentials provider. The normal ACP process never reads, copies, or
 prints the key. See the
 [Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md).
 
+Version `1.3.0` adds in-process subagents to the editor profile as a Stage B selection: the published subagent registry, its spawn and fork backends, and the delegation tools, projected as one parent tool card per delegation with the cancellation, settlement, late-event suppression, and teardown coverage that the Stage B acceptance criteria require. Background, continuable, and out-of-process children remain deferred. See the [In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md).
+
 Before new feature development resumes, the current quality-first order is `Q0 → Q1 → Q2 → Q3 → Q4`: provenance boundaries, public cross-platform CI, pinned/upstream-tip compatibility lanes, real Zed validation, and release/Registry evidence. Feature tables from other community implementations are not roadmap inputs. See [Upstream Alignment, Public CI, and Zed Validation](upstream-alignment.en.md) for the principles, acceptance gates, and non-goals.
 
 ## Capability Integration Boundary

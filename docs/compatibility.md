@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-本矩阵对应 `deepseekharness-acp-interactive 1.1.0`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
+本矩阵对应 `deepseekharness-acp-interactive 1.3.0`、稳定 ACP v1 和 `@agentclientprotocol/sdk 1.4.0`。版本结论以 Zed 发布说明、当前 Zed ACP client 能力声明，以及本仓库真实 NDJSON launcher/连接测试为依据。
 
 | Zed 版本 | 状态 | 能力范围 |
 | --- | --- | --- |
@@ -19,6 +19,7 @@
 - request cancellation 测试通过真实 NDJSON 连接取消一个长 prompt，验证另一个 session 不受影响，两个 session 随后都可继续使用。
 - Session 生命周期测试通过两个同时启动、共享 JSONL 真源且各自持有内存 SQLite 派生索引的真实 launcher，验证 close 后可立即跨进程 list/load/resume，且重复 close/restore 不删除历史。
 - 当前没有真实 boolean 领域配置，因此即使 Zed 声明支持也不会显示虚构开关。cost 同样只在 Harness 提供可信累计金额时发送。
+- Subagent 覆盖：真实 launcher 在 `read-only` preset 下完成一次真实 `subagent` 委托；内存连接覆盖并行与嵌套委托、子 agent 运行中的 `session/cancel` 与 bridge 释放。每条路径都证明委托卡片在父 turn 内结算，子 agent 不发起 permission request，结算后不再有更新。Zed 的 ACP client 对 `tool_call_update` 的 content 按替换处理，且只为其原生 agent 保存 `subagent_session_info` meta，因此子 transcript 整体重发，子 agent 身份放在 `_meta.dsh_subagent` 中。
 
 ## 固定上游基线
 

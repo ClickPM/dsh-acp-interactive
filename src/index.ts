@@ -67,6 +67,7 @@ import type {} from '@deepseek-ai/dsh-plan-mode'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-session-query'
+import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-user-questions'
 import type {} from '@deepseek-ai/dsh-tools'
@@ -104,6 +105,7 @@ import {
   McpConfigError,
   type SessionMcpHandle,
 } from './mcp.js'
+import { isDelegatedSession, SubagentTracker } from './subagents.js'
 
 /** Registry id, executable name, and ACP agent name are one identifier. */
 const AGENT_NAME = 'dsh-acp-interactive'
@@ -248,6 +250,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const pendingCommandSnapshots = new Map<SessionId, SessionRecord>()
   const selections = new WeakMap<Agent, ModelSelectionRef>()
   const sessionMcp = new WeakMap<Agent, SessionMcpHandle>()
+  const delegations = new SubagentTracker(tools, (message) => { logger.warn(message) })
   let closed = false
   let terminalOutputEnabled = false
   let imagePromptEnabled = false
@@ -552,6 +555,10 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       if (snapshot.session.cwd !== params.cwd) {
         throw invalidParams(`cwd does not match session ${sessionId}: expected ${snapshot.session.cwd}`)
       }
+      // A child's log is the parent's tool execution, not an editor thread.
+      if (isDelegatedSession(snapshot.session)) {
+        throw invalidParams(`session is a subagent child and cannot be restored: ${sessionId}`)
+      }
       if (replay) validateReplayableHistory(snapshot.events)
       const operationSignal = AbortSignal.any([start.controller.signal, signal])
       const handle = await agents.resume({
@@ -648,9 +655,23 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
 
   ctx.on('session/event', (session, event: SessionEvent) => {
     const record = sessions.get(session.id)
-    if (record === undefined || record.agent.session !== session) return
+    if (record === undefined || record.agent.session !== session) {
+      // A delegated child's events reach the editor only through the parent
+      // card that started it; every other session is foreign to this bridge.
+      try {
+        const child = delegations.childEvent(session, event)
+        if (child === undefined) return
+        const owner = ownedRecord(child.card.root)
+        /* v8 ignore next -- a root that left the session map has already been disposed, which drops its links. */
+        if (owner !== undefined) notify(owner, child.update)
+      } catch (error: unknown) {
+        logger.warn(`acp-interactive: subagent event projection failed: ${errorChain(error)}`)
+      }
+      return
+    }
     try {
-      for (const update of projectEvent(record, event)) notify(record, update)
+      if (event.type === 'subagent/catalog') delegations.catalog(event.data)
+      for (const update of projectEvent(record, event, delegations)) notify(record, update)
       if (event.type === 'assistant/message') {
         for (const block of event.data.message.content) {
           if (block.type === 'image') {
@@ -690,6 +711,34 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     settleAfterQuiescence(record, inflight)
   })
 
+  // Every tool dispatch runs inside its own delegation origin, so a child that
+  // the tool body starts through `ctx.subagents` is attributed to this exact
+  // call even when one parent step delegates several children in parallel.
+  ctx.on('tools/execute', function (this: unknown, exec, next) {
+    if (exec.agent === undefined) return next()
+    return delegations.runDelegation({ agent: exec.agent, callId: exec.callId }, next)
+  })
+
+  ctx.on('subagent/start', (info) => {
+    const opened = delegations.start(info, agents.get(info.id), agent => ownedRecord(agent) !== undefined)
+    if (opened === undefined) return
+    const record = ownedRecord(opened.card.root)
+    /* v8 ignore next -- the tracker admitted this root synchronously through ownedRecord. */
+    if (record !== undefined) notify(record, opened.update)
+  })
+
+  ctx.on('subagent/end', (info) => {
+    const ended = delegations.end(info)
+    if (ended === undefined) return
+    const record = ownedRecord(ended.card.root)
+    /* v8 ignore next -- a disposed root drops its links before its children can settle. */
+    if (record !== undefined) notify(record, ended.update)
+  })
+
+  ctx.on('agent/disposed', ({ agent }) => { delegations.dispose(agent) })
+
+  // Children carry an approval policy pinned to `never`, so they never reach
+  // this listener; only an exact bridge-owned root agent can ask the editor.
   ctx.on('approval/request', (request, next) => {
     const record = ownedRecord(request.agent)
     if (record === undefined || request.callId === undefined) return next()
@@ -843,6 +892,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
         }
         const records = (await ctx.sessionQuery.listSessions(signal))
           .filter(record => record.header.cwd !== undefined
+            && !isDelegatedSession(record.header)
             && (params.cwd === undefined || params.cwd === null || record.header.cwd === params.cwd))
         const titleResults = await ctx.sessionQuery.readTitleSnapshots(records.map(record => record.header.id))
         signal.throwIfAborted()
@@ -1278,7 +1328,11 @@ function projectStreamFrame(record: SessionRecord, frame: AssistantStreamFrame):
   }
 }
 
-function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotification['update'][] {
+function projectEvent(
+  record: SessionRecord,
+  event: SessionEvent,
+  delegations?: SubagentTracker,
+): SessionNotification['update'][] {
   switch (event.type) {
     case 'assistant/message':
       // The message text was streamed live from the attempt's frames; only the
@@ -1299,7 +1353,11 @@ function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotifi
       const block = event.data.message.content[0]
       const isError = block.isError === true
       const view = record.presenter.result(block.toolCallId, block.content, isError, event.data.meta)
-      return [projectToolResult(block.toolCallId, view, isError, record.terminal)]
+      const update = projectToolResult(block.toolCallId, view, isError, record.terminal)
+      // The parent's own result settles the card; the child transcript stays
+      // ahead of the result, and no later child event can reach the card.
+      const card = delegations?.settle(record.agent, block.toolCallId)
+      return [card === undefined ? update : card.settle(update)]
     }
     case 'todo/write':
       return [{ sessionUpdate: 'plan', ...todosToPlan(event.data.todos) }]

@@ -62,6 +62,12 @@ dsh-acp-interactive --setup
 
 ![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
 
+## 1.3.0
+
+`1.3.0` 加入进程内 subagent。组合 profile 现在装配已发布的 `@deepseek-ai/dsh-subagent` 注册表、`spawn` 与 `fork` 两个 backend，以及 `subagent`、`subagent_fork` 两个委托工具：模型把一个独立任务或需要沿用本对话的任务委托出去，并以工具结果收到子 agent 的最终回答，语义与上游完全一致。在 Zed 中，一次委托就是一张工具卡片：子 agent 发布后卡片以委托的 description 作为标题，运行期间子 agent 自己的工具调用、回复、嵌套委托与结算折叠为卡片内有界的 transcript，父 agent 自己的工具结果结算卡片，transcript 保留在结果之前。卡片的 `_meta.dsh_subagent` 记录子 session id，可据此在 sessions 根目录下找到它的日志。
+
+每次委托都在父 turn 内前台等待，因此 `session/cancel`、`session/close` 与连接拆卸都会先停掉子 agent，父 agent 才报告空闲；被取消的委托以失败卡片结算，transcript 以 `Subagent aborted` 结尾，调用结算后不再有任何子事件到达卡片。子 agent 继承父 session 的 sandbox mode，approval 固定为 `never`，并移除 `ask_user_question`，因此子 agent 不会发起 ACP permission request 或提问；升级路径仍归父 agent。子 session 不是编辑器会话：`session/list` 不列出它们，`session/load` 与 `session/resume` 明确拒绝。后台 job、continuable child 与进程外 backend 继续暂缓。见 [In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md)。
+
 ## 1.2.0
 
 `1.2.0` 将组合的 DeepSeek Harness 基线从 `0.1.2-rc.1` 移到 `0.1.5-rc.1`，公布的 ACP 能力面不变：ACP SDK 仍固定在 `1.4.0`，`initialize` 的应答与之前完全一致。
@@ -110,7 +116,7 @@ npm install --global deepseekharness-acp-interactive
 
 每个已发布版本都对应一个 `vX.Y.Z` tag 和一条 [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases)，其附件包含 tarball 及其 SHA-256 校验值，因此安装结果可以对照打 tag 的源码审计。
 
-发布的 tarball 已包含构建好的 `lib/`，安装时不运行构建步骤。安装会添加 `dsh-acp-interactive` 命令，该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
+发布的 tarball 已包含构建好的 `lib/`，安装时不运行构建步骤。安装会添加 `dsh-acp-interactive` 命令，该命令加载包内经过评审的 editor profile，组合 DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与本地 filesystem search、进程内 subagent、shell、权限、持久化、人类命令及 ACP transport。启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
 首次使用 DeepSeek 官方 API 前，可在终端运行：
 
@@ -184,7 +190,7 @@ stdout 仅传输 JSON-RPC 的约束。
 
 ## 协议
 
-插件实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume` 和 `session/close`。文本与 reasoning 增量会立即流式发送。工具调用读取每个工具的 `presentCall`、`presentResult` 和持久化的 `presentationMeta`；`generic`、`diff` 和 `terminal` 意图无需按工具名分支即可映射为 ACP 卡片。Editor profile 新增的 `glob`／`grep` 由 Harness 的已发布 filesystem-search 插件和随包 ripgrep 执行，仍走相同通用投影。`todo/write`、`session/title`、请求容量、provider 用量以及命令注册表变化会更新对应的客户端 session。
+插件实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume` 和 `session/close`。文本与 reasoning 增量会立即流式发送。工具调用读取每个工具的 `presentCall`、`presentResult` 和持久化的 `presentationMeta`；`generic`、`diff` 和 `terminal` 意图无需按工具名分支即可映射为 ACP 卡片。Editor profile 新增的 `glob`／`grep` 由 Harness 的已发布 filesystem-search 插件和随包 ripgrep 执行，仍走相同通用投影。通过 `subagent` 或 `subagent_fork` 工具发起的委托也是同类卡片：子 agent 的事件折叠为卡片内有界的 transcript，父 agent 的工具结果结算卡片。`todo/write`、`session/title`、请求容量、provider 用量以及命令注册表变化会更新对应的客户端 session。
 
 新会话收到第一条合格的文字提示后，会先发布 Harness 的即时确定性回退标题，再异步使用该次主请求已记录的精确 provider/model route 概括标题。模型结果作为新的 `session/title` 事件持久化并通过 `session_info_update` 替换客户端标题；生成失败、超时或输入超过 4096 字节时保留回退标题，不影响主 agent 响应。后续提示不会自动反复改名。
 
@@ -273,9 +279,11 @@ Zed terminal 扩展按能力启用。客户端声明 `_meta.terminal_output` 后
 
 消息、思考、工具卡片、审批、计划、标题、用量和命令更新只属于客户端。它们不增加 token，也不改变 KV cache 复用。工具结果和人工权限决定只通过普通 dsh tool-result 路径影响模型。
 
+Subagent 卡片同样只属于客户端。折叠进父卡片的子 agent transcript 不进入任何一方模型的上下文；父 agent 只通过普通 tool-result 路径看到子 agent 的最终输出，子 agent 只看到委托的 prompt 以及 Harness 为委托运行追加的标准运行时上下文。
+
 #### Token 影响
 
-ACP 更新不增加模型 token。工具结果保留普通 dsh 模型可见成本。
+ACP 更新不增加模型 token。工具结果保留普通 dsh 模型可见成本。一次委托由子 agent 在继承或配置的 route 上发起自己的请求；父 agent 只为该工具调用和子 agent 的最终输出付出 token。
 
 模型生成标题使用独立的辅助请求。它只读取首条合格用户消息，最多输出 32 token，并产生所选 route 的普通用量；生成的标题及其输入封装都不会进入主 agent 历史。
 
@@ -305,6 +313,7 @@ Selector 与 mode 元数据仅属于客户端。模型和 reasoning 选择会改
 - Session cost 只在 Harness 后端提供可靠的累计金额和币种后才会发送；当前不会按 token 价格猜测成本。
 - MCP 仅支持稳定 v1 的 stdio 与 Streamable HTTP 配置，legacy SSE 和 ACP 代理 transport 会被拒绝；Additional directories 仍不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
 - Terminal 输出在工具完成时发送，尚未增量推送。
+- Subagent 只在前台运行。`run_in_background`、continuable child、`send_message`、`interrupt_agent`、`list_agents` 以及进程外 ACP／Codex／Claude Code backend 均未组合。恢复的会话只重放委托的结算结果卡片，不带子 agent transcript；稳定 ACP 尚无子会话能力，因此卡片以 `_meta.dsh_subagent` 携带子 session id，而不是可跳转的子线程。
 
 ## 验证与 ACP Registry
 
