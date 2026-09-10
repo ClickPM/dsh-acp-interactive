@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import {
   makeHarness,
   reasoningResponse,
@@ -65,6 +65,8 @@ describe('interactive ACP persisted sessions', () => {
       source: { kind: 'user' },
     })
     const events = structuredClone(source.session.snapshotEvents())
+    // The closed source stays listed: the mounted backend routed its live
+    // events, title included, into the write handle the loop held for it.
     await harness.client.closeSession({ sessionId: sourceId })
 
     const older = SessionId('older-session')
@@ -91,6 +93,7 @@ describe('interactive ACP persisted sessions', () => {
 
     await expect(harness.client.listSessions({})).resolves.toEqual({
       sessions: [
+        { sessionId: sourceId, cwd, title: 'Persisted source' },
         { sessionId: newer, cwd, title: 'Persisted source' },
         { sessionId: older, cwd, title: 'Persisted source' },
         { sessionId: untitled, cwd },
@@ -98,6 +101,7 @@ describe('interactive ACP persisted sessions', () => {
     })
     await expect(harness.client.listSessions({ cwd })).resolves.toEqual({
       sessions: [
+        { sessionId: sourceId, cwd, title: 'Persisted source' },
         { sessionId: newer, cwd, title: 'Persisted source' },
         { sessionId: older, cwd, title: 'Persisted source' },
         { sessionId: untitled, cwd },
@@ -105,6 +109,7 @@ describe('interactive ACP persisted sessions', () => {
     })
     await expect(harness.client.listSessions({ cwd: null })).resolves.toEqual({
       sessions: [
+        { sessionId: sourceId, cwd, title: 'Persisted source' },
         { sessionId: newer, cwd, title: 'Persisted source' },
         { sessionId: older, cwd, title: 'Persisted source' },
         { sessionId: untitled, cwd },
@@ -282,11 +287,11 @@ describe('interactive ACP persisted sessions', () => {
     const loadId = SessionId('concurrent-load')
     const resumeId = SessionId('concurrent-resume')
     harness.persisted.set(loadId, {
-      meta: { version: 0, id: loadId, createdAt: 2, cwd, isSeeded: false },
+      meta: { version: SESSION_FORMAT_VERSION, id: loadId, createdAt: 2, cwd, isSeeded: false },
       events: [],
     })
     harness.persisted.set(resumeId, {
-      meta: { version: 0, id: resumeId, createdAt: 1, cwd, isSeeded: false },
+      meta: { version: SESSION_FORMAT_VERSION, id: resumeId, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
 
@@ -353,7 +358,7 @@ describe('interactive ACP persisted sessions', () => {
     const id = SessionId('slow-restore')
     const cwd = process.cwd()
     harness.persisted.set(id, {
-      meta: { version: 0, id, createdAt: 1, cwd, isSeeded: false },
+      meta: { version: SESSION_FORMAT_VERSION, id, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
     const read = harness.ctx.sessionQuery.readSession.bind(harness.ctx.sessionQuery)
@@ -380,7 +385,7 @@ describe('interactive ACP persisted sessions', () => {
     const id = SessionId('disconnected-restore')
     const cwd = process.cwd()
     harness.persisted.set(id, {
-      meta: { version: 0, id, createdAt: 1, cwd, isSeeded: false },
+      meta: { version: SESSION_FORMAT_VERSION, id, createdAt: 1, cwd, isSeeded: false },
       events: [],
     })
     const resume = harness.ctx.agents.resume.bind(harness.ctx.agents)

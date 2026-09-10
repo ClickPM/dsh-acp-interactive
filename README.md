@@ -62,6 +62,12 @@ Tool calls run inside the Harness sandbox. Under the `read-only` preset a write 
 
 ![The approved write card with its content, the read-back, and the created file](assets/zed-edit-result.png)
 
+## 1.2.0
+
+Version `1.2.0` moves the composed DeepSeek Harness baseline from `0.1.2-rc.1` to `0.1.5-rc.1`. The advertised ACP surface is unchanged: the ACP SDK pin stays at `1.4.0`, and `initialize` answers exactly as before.
+
+Upstream's session format is now v3. It embeds each model attempt's provider stream in one durable settlement and no longer writes per-token events, so live text and reasoning now reach the editor from the harness's process-local `agent/assistant-stream` frames while the assembled message stays the replay source; message ids are unchanged between live output and `session/load`. A log-only failed or retried attempt is never shown as a message. Sessions written by `1.1.0` and earlier are migrated on first read into a sibling `session.v3.jsonl.zstd` file — the original stays intact, so `session/list` and `session/load` keep working and a rollback still reads the old file. The profile's system-prompt persona follows an upstream rename (`persona` → `personaPrefix`) that would otherwise have been dropped silently, and `check:profile`, whose official reference file had moved before `0.1.2-rc.1`, runs again and records the resulting drift. See the [Upstream 0.1.5-rc.1 Baseline Agent Note](docs/agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md).
+
 ## 1.1.0
 
 Version `1.1.0` moves the composed DeepSeek Harness baseline from `0.1.1-rc.2` to `0.1.2-rc.1`. The advertised ACP surface is unchanged.

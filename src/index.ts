@@ -52,6 +52,7 @@ import {
   installModelSelection,
   type Agent,
   type AgentHandle,
+  type AssistantStreamFrame,
   type ModelSelection,
   type ModelSelectionRef,
 } from '@deepseek-ai/dsh-agent'
@@ -173,6 +174,17 @@ interface UsageState {
   lastSample: string | undefined
 }
 
+/**
+ * The model attempt currently streaming for a session. Chunk frames carry only
+ * the attempt id, so the turn and step that name the ACP message come from the
+ * attempt's start frame.
+ */
+interface LiveAttempt {
+  attemptId: AssistantStreamFrame['attemptId']
+  turn: number
+  step: number
+}
+
 interface SessionRecord {
   agent: Agent
   dispose: () => Promise<void>
@@ -181,6 +193,7 @@ interface SessionRecord {
   terminal: TerminalRendering
   outputTail: Promise<void>
   usage: UsageState
+  attempt: LiveAttempt | undefined
   inflight: AgentInflight | CommandInflight | AdmissionInflight | undefined
   closing: Promise<void> | undefined
   configTail: Promise<void>
@@ -345,10 +358,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     return selection
   }
 
-  const installSelection = (agentCtx: Context): void => {
-    const agent = agentCtx.agent
-    /* v8 ignore next -- AgentRegistry setup always receives the new agent's scoped context. */
-    if (agent === undefined) throw new Error('acp-interactive: agent setup has no scoped agent')
+  const installSelection = (agentCtx: Context, agent: Agent): void => {
     let picked: ModelSelection | undefined
     const selection: ModelSelectionRef = {
       get current(): ModelSelection | undefined {
@@ -377,11 +387,8 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   const installSessionSetup = (
     mcpConfigs: ReturnType<typeof mapMcpServers>,
     signal: AbortSignal,
-  ) => async (agentCtx: Context): Promise<void> => {
-    installSelection(agentCtx)
-    const agent = agentCtx.agent
-    /* v8 ignore next -- AgentRegistry setup always receives the new agent's scoped context. */
-    if (agent === undefined) throw new Error('acp-interactive: agent setup has no scoped agent')
+  ) => async (agentCtx: Context, agent: Agent): Promise<void> => {
+    installSelection(agentCtx, agent)
     const mcp = await installSessionMcp(agentCtx, mcpConfigs, signal)
     sessionMcp.set(agent, mcp)
   }
@@ -407,6 +414,7 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
     terminal: { enabled: terminalOutputEnabled, cwd: handle.agent.session.header.cwd },
     outputTail: Promise.resolve(),
     usage: { size: undefined, used: 0, lastSample: undefined },
+    attempt: undefined,
     inflight: undefined,
     closing: undefined,
     configTail: Promise.resolve(),
@@ -624,6 +632,19 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
       })
     /* v8 ignore stop */
   }
+
+  // Live text and reasoning deltas are process-local presentation frames: the
+  // loop commits the assembled `assistant/message` (or a log-only
+  // `assistant/attempt`) before it publishes the attempt's end frame, so these
+  // updates never enter model context and the durable record stays the replay
+  // source. Every attempt streams, including a retried one: ACP has no way to
+  // retract chunks already delivered, and a retry appends to the same message
+  // exactly as the former durable per-chunk projection did.
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    const record = ownedRecord(agent)
+    if (record === undefined) return
+    for (const update of projectStreamFrame(record, frame)) notify(record, update)
+  })
 
   ctx.on('session/event', (session, event: SessionEvent) => {
     const record = sessions.get(session.id)
@@ -1228,11 +1249,16 @@ export function apply(ctx: Context, config: AcpInteractiveConfig): void {
   ctx.effect(() => quiesce, 'acp-interactive.connection')
 }
 
-function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotification['update'][] {
-  switch (event.type) {
-    case 'assistant/chunk': {
-      const chunk = event.data.chunk
-      const messageId = assistantMessageId(record.agent.session.id, event.data.turn, event.data.step)
+function projectStreamFrame(record: SessionRecord, frame: AssistantStreamFrame): SessionNotification['update'][] {
+  switch (frame.type) {
+    case 'start':
+      record.attempt = { attemptId: frame.attemptId, turn: frame.turn, step: frame.step }
+      return []
+    case 'chunk': {
+      const attempt = record.attempt
+      if (attempt?.attemptId !== frame.attemptId) return []
+      const chunk = frame.chunk
+      const messageId = assistantMessageId(record.agent.session.id, attempt.turn, attempt.step)
       if (chunk.type === 'text-delta') {
         return [{ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: chunk.text }, messageId }]
       }
@@ -1243,13 +1269,27 @@ function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotifi
           messageId: thoughtMessageId(messageId),
         }]
       }
-      if (chunk.type === 'usage') return projectUsage(record, event.data.turn, event.data.step, chunk.usage)
+      if (chunk.type === 'usage') return projectUsage(record, attempt.turn, attempt.step, chunk.usage)
       return []
     }
+    case 'end':
+      if (record.attempt?.attemptId === frame.attemptId) record.attempt = undefined
+      return []
+  }
+}
+
+function projectEvent(record: SessionRecord, event: SessionEvent): SessionNotification['update'][] {
+  switch (event.type) {
     case 'assistant/message':
+      // The message text was streamed live from the attempt's frames; only the
+      // settlement's token accounting is new here.
       return event.data.usage === undefined
         ? []
         : projectUsage(record, event.data.turn, event.data.step, event.data.usage)
+    case 'assistant/attempt':
+      // Log-only evidence of a failed, retried, or abandoned attempt. It is not
+      // model-visible surface, so it must never reach the editor as a message.
+      return []
     case 'tool/call': {
       const view = record.presenter.call(event.data.callId, event.data.name, event.data.arguments)
       return [projectToolCall(event.data.callId, view, record.terminal)]

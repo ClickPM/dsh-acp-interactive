@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import {
+  LlmAttemptId,
   ToolCallId,
   createAssistantMessage,
   createToolResultMessage,
@@ -388,65 +389,102 @@ describe('interactive ACP bridge edges', () => {
     })
   })
 
-  it('projects direct event variants, deduplicates usage, and ignores foreign/replacement events', async () => {
+  it('projects live stream frames and direct event variants, deduplicates usage, and ignores foreign/replacement events', async () => {
     harness = await makeHarness([])
     const sessionId = await newSession(harness)
     const agent = ownedAgent(harness, sessionId)
     const foreign = Session.create(SessionId('foreign'))
+    const attempt = LlmAttemptId(`${sessionId}:1`)
+    const emitFrame = (frame: AssistantStreamFrame, subject: Agent = agent): void => {
+      harness!.ctx.emit('agent/assistant-stream', { agent: subject, frame })
+    }
+    const chunk = (index: number, chunk: StreamChunk, attemptId = attempt): AssistantStreamFrame => (
+      { type: 'chunk', attemptId, revision: index + 1, index, time: index, chunk }
+    )
+    // A delta before its attempt's start frame names no turn or step.
+    emitFrame(chunk(0, { type: 'text-delta', index: 0, text: 'orphan' }))
+    emitFrame({ type: 'start', attemptId: attempt, revision: 1, turn: 1, step: 1 })
+    // A frame owned by an agent outside this bridge is not projected.
+    emitFrame({ type: 'start', attemptId: attempt, revision: 1, turn: 9, step: 9 }, { session: foreign } as unknown as Agent)
+    emitFrame(chunk(0, { type: 'block-start', index: 0, blockType: 'text' }))
+    emitFrame(chunk(1, { type: 'text-delta', index: 0, text: 'live' }))
+    emitFrame(chunk(2, { type: 'reasoning-delta', index: 1, text: 'thinking' }))
+    // Another attempt's chunk is not the live one.
+    emitFrame(chunk(0, { type: 'text-delta', index: 0, text: 'stale' }, LlmAttemptId(`${sessionId}:2`)))
     emitOwned(harness, agent, {
-      type: 'assistant/chunk', seq: SessionSeq(0), time: 1,
-      data: { turn: 1, step: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } },
-    })
-    emitOwned(harness, agent, {
-      type: 'assistant/message', seq: SessionSeq(1), time: 2, surfaceOp: 'append',
+      type: 'assistant/message', seq: SessionSeq(0), time: 2, surfaceOp: 'append',
       data: {
         turn: 1,
         step: 1,
         message: createAssistantMessage({ content: [], source: { provider: 'mock', model: 'mock' } }),
+        stream: [],
       },
     })
-    const usageEvent: SessionEvent = {
-      type: 'assistant/chunk', seq: SessionSeq(2), time: 3,
-      data: { turn: 1, step: 1, chunk: { type: 'usage', usage: { inputTokens: 2, outputTokens: 3 } } },
-    }
-    emitOwned(harness, agent, usageEvent)
+    const usageFrame = chunk(3, { type: 'usage', usage: { inputTokens: 2, outputTokens: 3 } })
+    emitFrame(usageFrame)
     emitOwned(harness, agent, {
-      type: 'request/context', seq: SessionSeq(3), time: 4,
+      type: 'request/context', seq: SessionSeq(1), time: 4,
       data: { provider: 'mock', model: 'mock' },
     })
     emitOwned(harness, agent, {
-      type: 'request/context', seq: SessionSeq(4), time: 5,
+      type: 'request/context', seq: SessionSeq(2), time: 5,
       data: { provider: 'mock', model: 'mock', contextWindow: 100 },
     })
-    emitOwned(harness, agent, usageEvent)
+    emitFrame(usageFrame)
     emitOwned(harness, agent, {
-      type: 'assistant/message', seq: SessionSeq(5), time: 6, surfaceOp: 'append',
+      type: 'assistant/message', seq: SessionSeq(3), time: 6, surfaceOp: 'append',
       data: {
         turn: 1,
         step: 2,
         message: createAssistantMessage({ content: [], source: { provider: 'mock', model: 'mock' } }),
         usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 1, cacheWriteTokens: 1 },
+        stream: [],
       },
     })
+    // Log-only attempt evidence never reaches the editor.
     emitOwned(harness, agent, {
-      type: 'tool/result', seq: SessionSeq(6), time: 7, surfaceOp: { op: 'replace', start: SessionSeq(0), end: SessionSeq(0) },
+      type: 'assistant/attempt', seq: SessionSeq(4), time: 7,
+      data: { turn: 1, step: 2, stream: [] },
+    })
+    emitOwned(harness, agent, {
+      type: 'tool/result', seq: SessionSeq(5), time: 8, surfaceOp: { op: 'replace', startSeq: SessionSeq(0), endSeq: SessionSeq(0) },
       data: {
         turn: 1,
         step: 1,
         message: createToolResultMessage({ callId: ToolCallId('ignored'), content: [{ type: 'text', text: 'x' }], isError: false }),
       },
     })
+    emitFrame({
+      type: 'end', attemptId: attempt, revision: 5, index: 4,
+      outcome: { kind: 'committed', eventType: 'assistant/message', seq: SessionSeq(3) },
+    })
+    // After the end frame the attempt is gone, so a late delta is dropped; an
+    // end for an attempt that never started changes nothing.
+    emitFrame(chunk(4, { type: 'text-delta', index: 0, text: 'late' }))
+    emitFrame({ type: 'end', attemptId: LlmAttemptId(`${sessionId}:3`), revision: 6, index: 0, outcome: { kind: 'abandoned' } })
     harness.ctx.emit('session/event', foreign, {
       type: 'todo/write', seq: SessionSeq(0), time: 0, data: { todos: [{ content: 'foreign', status: 'pending' }] },
     })
     await vi.waitFor(() => {
-      expect(harness!.updates.some(item => item.update.sessionUpdate === 'usage_update')).toBe(true)
+      expect(harness!.updates.filter(item => item.update.sessionUpdate === 'usage_update').length).toBe(2)
     })
     const usage = harness.updates.filter(item => item.update.sessionUpdate === 'usage_update')
     expect(usage.map(item => item.update)).toEqual([
       { sessionUpdate: 'usage_update', size: 100, used: 2 },
       { sessionUpdate: 'usage_update', size: 100, used: 3 },
     ])
+    const texts = harness.updates.flatMap(item => (
+      item.update.sessionUpdate === 'agent_message_chunk' && item.update.content.type === 'text'
+        ? [{ text: item.update.content.text, messageId: item.update.messageId }]
+        : []
+    ))
+    expect(texts).toEqual([{ text: 'live', messageId: `${sessionId}:assistant:1:1` }])
+    const thoughts = harness.updates.flatMap(item => (
+      item.update.sessionUpdate === 'agent_thought_chunk' && item.update.content.type === 'text'
+        ? [{ text: item.update.content.text, messageId: item.update.messageId }]
+        : []
+    ))
+    expect(thoughts).toEqual([{ text: 'thinking', messageId: `${sessionId}:assistant:1:1:thought` }])
     expect(harness.updates.some(item => item.update.sessionUpdate === 'plan'
       && item.update.entries.some(entry => entry.content === 'foreign'))).toBe(false)
     expect(harness.updates.some(item => item.update.sessionUpdate === 'tool_call_update'

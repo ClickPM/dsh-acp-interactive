@@ -22,14 +22,16 @@ This matrix applies to `deepseekharness-acp-interactive 1.1.0`, stable ACP v1, a
 
 ## Pinned upstream baseline
 
-The composed Harness packages are pinned to `0.1.2-rc.1`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.1.2-rc.1` that `npm run test:harness` extracts its specs from.
+The composed Harness packages are pinned to `0.1.5-rc.1`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.1.5-rc.1` that `npm run test:harness` extracts its specs from.
 
-At that release the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. It remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
+At `0.1.2-rc.1` the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. `0.1.5-rc.1` leaves that surface where it was: the official package still pins ACP SDK `1.4.0`, publishes the same twelve spec files, and remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
+
+What did move at `0.1.5-rc.1` is the runtime underneath: session format v3 embeds each model attempt's provider stream in one durable settlement instead of per-token events, and live text and reasoning deltas reach the editor from the process-local `agent/assistant-stream` frames. Sessions written by earlier releases migrate on first read into a sibling `session.v3.jsonl.zstd` file, so `session/list` and `session/load` keep working on them; see the [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md).
 
 That difference is why only the specs classified as aligned in `config/upstream-baseline.json` run verbatim. The rest are recorded as explicit divergences of two kinds:
 
 - `composition` — the official `tests/harness.ts` composes neither `commands`, `skills`, nor `sessionQuery`, which this server injects to serve slash commands, skills, and `session/load`. Its plugin fiber never activates in that harness, so those specs cannot execute here. Each is covered by this repository's own equivalent suite.
-- `internal-api` — the spec imports official private module names or modules introduced by the `0.1.2-rc.1` refactor (`src/model-control.ts`, `src/updates.ts`). The protocol behavior exists here under this repository's own decomposition.
+- `internal-api` — the spec imports official private module names or modules introduced by the `0.1.2-rc.1` refactor (`src/model-control.ts`, `src/updates.ts`); `0.1.5-rc.1` changed their bodies but not that private structure. The protocol behavior exists here under this repository's own decomposition.
 
 A recorded divergence is a reviewed statement, not a skip: the gate fails whenever the pinned ref adds, removes, or renames a spec, and reclassifying a spec purely to keep the gate green is prohibited.
 

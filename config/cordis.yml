@@ -48,8 +48,9 @@
 # same composition explicitly, one published plugin per row. The set and the
 # forwarded configuration match what the bundle mounted for this profile's old
 # config: `toolBash: false` (this profile owns the platform shell switch, so
-# the bundle's bash consumer is simply absent), `goals: {}`, `persona`, and
-# `workspaceContext.maxBytes` now addressed at their owning plugins.
+# the bundle's bash consumer is simply absent), `goals: {}`, the persona (now
+# `personaPrefix`, renamed upstream at 0.1.5), and `workspaceContext.maxBytes`
+# now addressed at their owning plugins.
 - id: timer
   name: '@deepseek-ai/cordis-plugin-timer'
 - id: llm
@@ -67,7 +68,11 @@
   config:
     includeHarnessIdentity: true
     includeRuntimeContext: true
-    persona: |
+    # 0.1.5 split `persona` into an order-0 `personaPrefix` and a `personaSuffix`
+    # rendered after first-party guidance. The whole line stays in the prefix so
+    # the rendered prompt order is unchanged; schemastery silently ignores the
+    # old key, so this rename is a silent regression if it drifts.
+    personaPrefix: |
       You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
 - id: tools
   name: '@deepseek-ai/dsh-tools'

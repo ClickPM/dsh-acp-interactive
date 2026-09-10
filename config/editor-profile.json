@@ -163,7 +163,7 @@
   "reconciliation": {
     "referenceFiles": [
       "packages/bundle/base/cordis.patch.yml",
-      "apps/cli/config/agent-presets/standard/agent.cordis.yml"
+      "packages/preset/agent-presets/presets/standard/agent.cordis.yml"
     ],
     "candidatePatterns": [
       "^@deepseek-ai/dsh-(?:(?:command-.+)|permission-presets$|plan-mode$|skill-filesystem$|goal(?:-.+)?$|jobs-local$|web(?:-.+)?$|lsp(?:-.+)?$|terminal(?:-.+)?$|subagent(?:-.+)?$|workflow(?:-.+)?$|spill(?:-.+)?$|compaction-tool-result-pruner$|tool-(?:fs-search|goal|jobs|web|ralph|subagent(?:-.+)?|workflow)$|tool-call-timeout-policy$)"
@@ -199,10 +199,10 @@
         "@deepseek-ai/dsh-tool-subagent",
         "@deepseek-ai/dsh-tool-subagent-control",
         "@deepseek-ai/dsh-tool-subagent-control/list-agents",
-        "@deepseek-ai/dsh-tool-subagent-report",
         "@deepseek-ai/dsh-tool-web",
         "@deepseek-ai/dsh-tool-workflow",
         "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-fetch-http",
         "@deepseek-ai/dsh-web-search-deepseek",
         "@deepseek-ai/dsh-workflow-worker-thread"
       ],
@@ -220,6 +220,7 @@
         "@deepseek-ai/dsh-subagent-spawn-in-process",
         "@deepseek-ai/dsh-tool-call-timeout-policy",
         "@deepseek-ai/dsh-web",
+        "@deepseek-ai/dsh-web-fetch-http",
         "@deepseek-ai/dsh-web-search-deepseek",
         "@deepseek-ai/dsh-workflow-worker-thread"
       ],
@@ -236,7 +237,6 @@
         "@deepseek-ai/dsh-tool-subagent",
         "@deepseek-ai/dsh-tool-subagent-control",
         "@deepseek-ai/dsh-tool-subagent-control/list-agents",
-        "@deepseek-ai/dsh-tool-subagent-report",
         "@deepseek-ai/dsh-tool-web",
         "@deepseek-ai/dsh-tool-workflow"
       ]

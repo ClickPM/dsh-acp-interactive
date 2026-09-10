@@ -560,6 +560,7 @@ describe('interactive ACP bridge', () => {
         content: [{ type: 'image', attachment: image.attachment }],
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       },
+      stream: [],
     }, { surfaceOp: 'append' })
     await vi.waitFor(() => {
       expect(harness!.updates).toContainEqual({
@@ -584,6 +585,7 @@ describe('interactive ACP bridge', () => {
         }],
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       },
+      stream: [],
     }, { surfaceOp: 'append' })
     await vi.waitFor(() => {
       expect(warnings.some(message => message.includes('image projection failed'))).toBe(true)

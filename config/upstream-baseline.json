@@ -6,10 +6,14 @@
     "from whatever the local checkout has checked out, so the compatibility gate",
     "cannot silently drift with a developer's working tree.",
     "Every official ACP spec file must be classified below. An unclassified file",
-    "fails the run: a new official assertion is a review event, not a silent skip."
+    "fails the run: a new official assertion is a review event, not a silent skip.",
+    "Re-reviewed at dsh-v0.1.5-rc.1: the official package publishes the same twelve",
+    "spec files. codec.spec.ts is byte-identical to 0.1.2-rc.1; bridge, dispose,",
+    "turns, updates, and harness changed with the format-v3 persistence rewrite but",
+    "their classification reasons below still hold verbatim."
   ],
-  "ref": "dsh-v0.1.2-rc.1",
-  "packageVersion": "0.1.2-rc.1",
+  "ref": "dsh-v0.1.5-rc.1",
+  "packageVersion": "0.1.5-rc.1",
   "acpTestPath": "packages/acp/acp/tests",
   "sharedFixturePaths": [
     "packages/mcp/mcp-client/tests"

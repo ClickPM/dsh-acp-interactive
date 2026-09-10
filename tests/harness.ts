@@ -27,13 +27,24 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as toolSkill from '@deepseek-ai/dsh-tool-skill'
-import { SessionLogOffset, type SessionEvent, type SessionHeader, type SessionId } from '@deepseek-ai/dsh-session'
-import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import {
+  SessionLogOffset,
+  type Session,
+  type SessionEvent,
+  type SessionHeader,
+  type SessionId,
+} from '@deepseek-ai/dsh-session'
 import SessionPersistence, {
+  SessionAlreadyExistsError,
+  SessionAlreadyOwnedError,
+  SessionHandleClosedError,
+  SessionPersistenceNotFoundError,
   SessionPersistenceRevision,
-  type BorrowedSessionSource,
-  type SessionEventSuffix,
-  type SessionInspection,
+  SessionReadOnlyError,
+  type SessionAccess,
+  type SessionHandle,
+  type SessionHandleReadResult,
+  type SessionPersistenceSnapshot,
 } from '@deepseek-ai/dsh-session-persistence'
 import SessionQueryEngine, {
   type SessionEventSearchPage,
@@ -73,79 +84,143 @@ interface PersistedEntry {
  */
 const NO_INHERITED_EVENTS = SessionLogOffset(0)
 
-class HarnessPersistence extends SessionPersistence {
-  override readonly supportsRawArtifacts = false
-  static inject = ['sessions']
+/**
+ * One open channel onto a fixture entry. The entry object is captured when the
+ * handle opens, so a test that replaces a session's persisted state through
+ * `harness.persisted.set()` while the live writer still holds its handle keeps
+ * the replacement authoritative for every later read.
+ */
+class HarnessHandle implements SessionHandle {
+  readonly inheritedEventCount = NO_INHERITED_EVENTS
+  private closed = false
 
-  constructor(ctx: Context, private readonly entries: Map<SessionId, PersistedEntry>) {
-    super(ctx)
+  constructor(
+    readonly id: SessionId,
+    readonly access: SessionAccess,
+    private readonly entry: PersistedEntry,
+    private readonly release: () => void,
+  ) {}
+
+  get header(): SessionHeader {
+    return this.entry.meta
   }
 
-  locate(): undefined {
-    return undefined
+  read(offset = 0, length?: number): Promise<SessionHandleReadResult> {
+    return this.operation('read', () => ({
+      eventState: 'detached' as const,
+      events: structuredClone(this.entry.events.slice(offset, length === undefined ? undefined : offset + length)),
+    }))
   }
 
-  create(meta: SessionHeader): Promise<void> {
-    this.entries.set(meta.id, { meta: structuredClone(meta), events: [] })
-    return Promise.resolve()
-  }
-
-  append(id: SessionId, events: readonly SessionEvent[]): Promise<void> {
-    const entry = this.entries.get(id)
-    if (entry === undefined) return Promise.reject(new Error(`missing persisted session: ${id}`))
-    entry.events = [...entry.events, ...structuredClone(events)]
-    return Promise.resolve()
-  }
-
-  load(id: SessionId): Promise<SessionInspection> {
-    return this.inspect(id)
-  }
-
-  inspect(id: SessionId, signal?: AbortSignal): Promise<SessionInspection> {
-    signal?.throwIfAborted()
-    const entry = this.entries.get(id)
-    if (entry === undefined) return Promise.reject(new Error(`missing persisted session: ${id}`))
-    const clone = structuredClone(entry)
-    return Promise.resolve({
-      meta: clone.meta,
-      events: clone.events,
-      inheritedEventCount: NO_INHERITED_EVENTS,
+  append(events: readonly SessionEvent[]): Promise<void> {
+    return this.operation('append', () => {
+      if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'append')
+      this.entry.events = [...this.entry.events, ...structuredClone(events)]
     })
   }
 
-  async borrowSession(id: SessionId, signal?: AbortSignal): Promise<BorrowedSessionSource> {
-    const inspection = await this.inspect(id, signal)
-    // No prepared Session is pinned: this fixture always materializes a
-    // detached observation, so the borrow reports a live source and its
-    // disposal releases nothing.
-    return { source: 'live', inspection, [Symbol.dispose]: () => {} }
+  /**
+   * Route one announced live event. The loop stores a session's
+   * pre-publication suffix through `append` before live routing starts, so an
+   * event at a seq the entry already holds is that suffix re-announced and is
+   * dropped rather than duplicated.
+   */
+  routeLive(event: SessionEvent): void {
+    if (this.closed || this.access !== 'write') return
+    if (event.seq < this.entry.events.length) return
+    this.entry.events = [...this.entry.events, structuredClone(event)]
   }
 
-  async readFrom(
-    id: SessionId,
-    fromSeq: SessionLogOffset,
-    signal?: AbortSignal,
-  ): Promise<SessionEventSuffix> {
-    const inspection = await this.inspect(id, signal)
-    return {
-      meta: inspection.meta,
-      inheritedEventCount: inspection.inheritedEventCount,
-      fromSeq,
-      events: inspection.events.filter(event => event.seq >= fromSeq),
+  flush(): Promise<void> {
+    return this.operation('flush', () => {
+      if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'flush')
+    })
+  }
+
+  close(): Promise<void> {
+    if (!this.closed) {
+      this.closed = true
+      this.release()
+    }
+    return Promise.resolve()
+  }
+
+  [Symbol.asyncDispose](): Promise<void> {
+    return this.close()
+  }
+
+  private operation<T>(name: string, run: () => T): Promise<T> {
+    if (this.closed) return Promise.reject(new SessionHandleClosedError(this.id, name))
+    try {
+      return Promise.resolve(run())
+    } catch (error: unknown) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
   }
+}
 
-  list(signal?: AbortSignal): Promise<SessionHeader[]> {
-    signal?.throwIfAborted()
-    return Promise.resolve([...this.entries.values()].map(entry => structuredClone(entry.meta)))
+/**
+ * In-memory backend over the handle-based persistence contract. Like the
+ * published backends, it owns the routing of announced live events into the
+ * one active write handle per session id; the loop only owns the handle.
+ */
+class HarnessPersistence extends SessionPersistence {
+  static inject = ['sessions']
+  private readonly writers = new Map<SessionId, HarnessHandle>()
+
+  constructor(ctx: Context, private readonly entries: Map<SessionId, PersistedEntry>) {
+    super(ctx)
+    ctx.on('session/event', (session: Session, event: SessionEvent) => {
+      this.writers.get(session.id)?.routeLive(event)
+    })
+    ctx.on('session/flush', (session: Session) => this.writers.get(session.id)?.flush())
+    ctx.on('session/disposed', (session: Session) => {
+      void this.writers.get(session.id)?.close()
+    })
   }
 
-  listSnapshots(signal?: AbortSignal) {
-    signal?.throwIfAborted()
-    return Promise.resolve([...this.entries.values()].map(entry => ({
-      header: structuredClone(entry.meta),
-      revision: SessionPersistenceRevision(JSON.stringify(entry)),
-    })))
+  create(header: SessionHeader): Promise<SessionHandle> {
+    if (this.entries.has(header.id)) return Promise.reject(new SessionAlreadyExistsError(header.id))
+    const entry: PersistedEntry = { meta: structuredClone(header), events: [] }
+    this.entries.set(header.id, entry)
+    return this.claim(header.id, 'write', entry)
+  }
+
+  open(id: SessionId, access: SessionAccess): Promise<SessionHandle> {
+    const entry = this.entries.get(id)
+    if (entry === undefined) return Promise.reject(new SessionPersistenceNotFoundError(id))
+    return this.claim(id, access, entry)
+  }
+
+  flush(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  stat(id: SessionId): Promise<SessionPersistenceSnapshot | undefined> {
+    const entry = this.entries.get(id)
+    return Promise.resolve(entry === undefined ? undefined : snapshotOf(entry))
+  }
+
+  list(): Promise<readonly SessionPersistenceSnapshot[]> {
+    return Promise.resolve([...this.entries.values()].map(snapshotOf))
+  }
+
+  private claim(id: SessionId, access: SessionAccess, entry: PersistedEntry): Promise<SessionHandle> {
+    if (access !== 'write') return Promise.resolve(new HarnessHandle(id, access, entry, () => {}))
+    if (this.writers.has(id)) return Promise.reject(new SessionAlreadyOwnedError(id))
+    const handle: HarnessHandle = new HarnessHandle(id, access, entry, () => {
+      if (this.writers.get(id) === handle) this.writers.delete(id)
+    })
+    this.writers.set(id, handle)
+    return Promise.resolve(handle)
+  }
+}
+
+function snapshotOf(entry: PersistedEntry): SessionPersistenceSnapshot {
+  return {
+    header: structuredClone(entry.meta),
+    revision: SessionPersistenceRevision(String(entry.events.length)),
+    eventCount: entry.events.length,
   }
 }
 
@@ -282,11 +357,9 @@ export async function makeHarness(
   providers: string[] = ['mock'],
 ): Promise<BridgeHarness> {
   const ctx = new Context()
-  await mountAgentLoopTestDependencies(ctx, { systemPrompt: { persona: '' } })
-  // The agent loop and the permission/approval services fold their state through
-  // registered projection units, so the registry is a required dependency of
-  // this composition rather than an optional extra.
-  await ctx.plugin(SessionProjectionRegistry)
+  // The testkit mounts the session projection registry the loop and the
+  // permission/approval services fold their state through.
+  await mountAgentLoopTestDependencies(ctx, { systemPrompt: { personaPrefix: '' } })
   const persisted = new Map<SessionId, PersistedEntry>()
   await ctx.plugin(HarnessPersistence, persisted)
   await ctx.plugin(HarnessSessionQuery)

@@ -22,14 +22,16 @@
 
 ## 固定上游基线
 
-组合的 Harness 包固定在 `0.1.2-rc.1`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.1.2-rc.1`，`npm run test:harness` 从该 ref 提取 spec。
+组合的 Harness 包固定在 `0.1.5-rc.1`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.1.5-rc.1`，`npm run test:harness` 从该 ref 提取 spec。
 
-在该版本，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。但它仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
+在 `0.1.2-rc.1`，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。`0.1.5-rc.1` 没有再移动这个能力面：官方包仍固定 ACP SDK `1.4.0`，发布的仍是同样十二个 spec 文件，也仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
+
+`0.1.5-rc.1` 移动的是底下的运行时：session 格式 v3 把每次模型 attempt 的 provider 流内嵌进一条耐久结算事件，不再逐 token 记录；实时的文本与推理增量改由进程内的 `agent/assistant-stream` frame 送达编辑器。早先版本写下的 session 在首次读取时迁移为同目录的 `session.v3.jsonl.zstd`，`session/list` 与 `session/load` 对它们继续可用；见 [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md)。
 
 这个差异决定了只有 `config/upstream-baseline.json` 中标记为 aligned 的 spec 会原样运行。其余逐个记录为两类显式分歧：
 
 - `composition` — 官方 `tests/harness.ts` 未组合 `commands`、`skills`、`sessionQuery`，而本服务器为了提供 slash 命令、skill 和 `session/load` 对这三个服务声明了 inject。在该 harness 下本插件 fiber 永不激活，因此这些 spec 无法在此执行；每一项都由本仓库自有的对应套件覆盖。
-- `internal-api` — spec 引用官方私有模块名，或 `0.1.2-rc.1` 重构新引入的模块（`src/model-control.ts`、`src/updates.ts`）。对应的协议行为在本仓库以自有的模块划分存在。
+- `internal-api` — spec 引用官方私有模块名，或 `0.1.2-rc.1` 重构新引入的模块（`src/model-control.ts`、`src/updates.ts`）；`0.1.5-rc.1` 改了它们的内容但没有改这层私有结构。对应的协议行为在本仓库以自有的模块划分存在。
 
 记录分歧是经过评审的结论，而不是跳过：当固定 ref 新增、移除或重命名 spec 时门会失败，且禁止为了保持绿色而重新分类。
 

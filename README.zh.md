@@ -62,6 +62,12 @@ dsh-acp-interactive --setup
 
 ![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
 
+## 1.2.0
+
+`1.2.0` 将组合的 DeepSeek Harness 基线从 `0.1.2-rc.1` 移到 `0.1.5-rc.1`，公布的 ACP 能力面不变：ACP SDK 仍固定在 `1.4.0`，`initialize` 的应答与之前完全一致。
+
+上游的 session 格式现为 v3：每次模型 attempt 的 provider 流内嵌进一条耐久结算事件，不再写逐 token 事件，因此实时的文本与推理增量改由 harness 进程内的 `agent/assistant-stream` frame 送达编辑器，而组装后的消息仍是重放来源；实时输出与 `session/load` 之间的 message id 不变。仅存日志的失败或重试 attempt 永远不会作为消息展示。`1.1.0` 及更早版本写下的 session 在首次读取时迁移为同目录的 `session.v3.jsonl.zstd`，原文件保持不动，因此 `session/list` 与 `session/load` 继续可用，回滚后仍读取旧文件。profile 的系统提示 persona 跟进了上游的改名（`persona` → `personaPrefix`），否则会被静默丢弃；`check:profile` 的官方参照文件在 `0.1.2-rc.1` 之前就已搬走，现已修复并记录了由此产生的差异。见 [Upstream 0.1.5-rc.1 Baseline Agent Note](docs/agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md)。
+
 ## 1.1.0
 
 `1.1.0` 将组合的 DeepSeek Harness 基线从 `0.1.1-rc.2` 移到 `0.1.2-rc.1`，公布的 ACP 能力面不变。
