@@ -2,6 +2,12 @@
 
 Release notes for [dsh-acp-interactive](README.md). 中文版见 [CHANGELOG.zh.md](CHANGELOG.zh.md).
 
+## 1.3.1
+
+Version `1.3.1` moves the composed DeepSeek Harness baseline from `0.1.5-rc.1` to `0.1.5-rc.3`. The advertised ACP surface and runtime behaviors remain unchanged: the ACP SDK pin stays at `1.4.0`, and all twelve official ACP specs remain byte-for-byte identical to `0.1.5-rc.1`.
+
+Upstream changes between `0.1.5-rc.1` and `0.1.5-rc.3` were confined to web deliverables, feedback dialog refinements, and monorepo vendor dependency pinning (`workspace:^` to `workspace:*` for packages like schemastery and cordis). The agent loop, session persistence format (v3), tools, subagents, and prompt engines have zero breaking changes or behavioral shifts. See the [Upstream 0.1.5-rc.3 Baseline Agent Note](docs/agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md).
+
 ## 1.3.0
 
 Version `1.3.0` adds in-process subagents. The composed profile now mounts the published `@deepseek-ai/dsh-subagent` registry with its `spawn` and `fork` backends and two delegation tools, `subagent` and `subagent_fork`: the model delegates a self-contained or conversation-seeded task and receives the child's final answer as the tool result, exactly as upstream defines it. In Zed a delegation is one tool card. The card takes the delegation's description as its title once the child is published, the child's own tool calls, replies, nested delegations, and settlement are folded into a bounded transcript inside the card while it runs, and the parent's own tool result settles the card with that transcript kept ahead of the result. The card's `_meta.dsh_subagent` names the child session, so its log can be found under the sessions root.

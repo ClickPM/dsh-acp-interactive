@@ -2,6 +2,12 @@
 
 [dsh-acp-interactive](README.zh.md) 的版本说明。English: [CHANGELOG.md](CHANGELOG.md).
 
+## 1.3.1
+
+`1.3.1` 将组合的 DeepSeek Harness 基线从 `0.1.5-rc.1` 提升至 `0.1.5-rc.3`。公布的 ACP 能力面与运行时行为保持完全一致：ACP SDK 仍固定在 `1.4.0`，且官方发布的全部 12 个 ACP spec 与 `0.1.5-rc.1` 逐字节相同。
+
+上游在 `0.1.5-rc.1` 至 `0.1.5-rc.3` 之间的变更集中于 Web 交付物交互、反馈对话框细节优化以及 monorepo 内部 vendor 依赖的规范化锁定（如 schemastery 与 cordis 从 `workspace:^` 锁定为 `workspace:*`）。底层 Agent Loop、Session v3 耐久持久化、工具、子 agent 及系统提示词引擎均无破坏性变更或行为漂移。见 [Upstream 0.1.5-rc.3 Baseline Agent Note](docs/agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md)。
+
 ## 1.3.0
 
 `1.3.0` 加入进程内 subagent。组合 profile 现在装配已发布的 `@deepseek-ai/dsh-subagent` 注册表、`spawn` 与 `fork` 两个 backend，以及 `subagent`、`subagent_fork` 两个委托工具：模型把一个独立任务或需要沿用本对话的任务委托出去，并以工具结果收到子 agent 的最终回答，语义与上游完全一致。在 Zed 中，一次委托就是一张工具卡片：子 agent 发布后卡片以委托的 description 作为标题，运行期间子 agent 自己的工具调用、回复、嵌套委托与结算折叠为卡片内有界的 transcript，父 agent 自己的工具结果结算卡片，transcript 保留在结果之前。卡片的 `_meta.dsh_subagent` 记录子 session id，可据此在 sessions 根目录下找到它的日志。
