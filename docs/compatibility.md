@@ -23,11 +23,11 @@
 
 ## 固定上游基线
 
-组合的 Harness 包固定在 `0.1.5-rc.1`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.1.5-rc.1`，`npm run test:harness` 从该 ref 提取 spec。
+组合的 Harness 包固定在 `0.1.5-rc.3`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.1.5-rc.3`，`npm run test:harness` 从该 ref 提取 spec。
 
-在 `0.1.2-rc.1`，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。`0.1.5-rc.1` 没有再移动这个能力面：官方包仍固定 ACP SDK `1.4.0`，发布的仍是同样十二个 spec 文件，也仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
+在 `0.1.2-rc.1`，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。`0.1.5`（rc.1 至 rc.3）没有再移动这个能力面：官方包仍固定 ACP SDK `1.4.0`，发布的仍是同样十二个 spec 文件，也仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
 
-`0.1.5-rc.1` 移动的是底下的运行时：session 格式 v3 把每次模型 attempt 的 provider 流内嵌进一条耐久结算事件，不再逐 token 记录；实时的文本与推理增量改由进程内的 `agent/assistant-stream` frame 送达编辑器。早先版本写下的 session 在首次读取时迁移为同目录的 `session.v3.jsonl.zstd`，`session/list` 与 `session/load` 对它们继续可用；见 [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md)。
+`0.1.5` 移动的是底下的运行时：session 格式 v3 把每次模型 attempt 的 provider 流内嵌进一条耐久结算事件，不再逐 token 记录；实时的文本与推理增量改由进程内的 `agent/assistant-stream` frame 送达编辑器。早先版本写下的 session 在首次读取时迁移为同目录的 `session.v3.jsonl.zstd`，`session/list` 与 `session/load` 对它们继续可用；见 [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md) 及 [Upstream 0.1.5-rc.3 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md)。
 
 这个差异决定了只有 `config/upstream-baseline.json` 中标记为 aligned 的 spec 会原样运行。其余逐个记录为两类显式分歧：
 
