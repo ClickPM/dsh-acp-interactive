@@ -163,10 +163,16 @@
       danger-full-access:
         sandbox: danger-full-access
         approval: never
+# Session logs are already partitioned by each session's own cwd beneath the
+# root, so the root itself must not follow the process cwd: a client that
+# serves several workspaces from one process, or restarts it elsewhere, would
+# otherwise lose sight of every session it wrote. The default lives in the dsh
+# home beside settings and credentials, in its own directory so ACP sessions
+# stay isolated from other Harness surfaces. A blank override counts as unset.
 - id: persistence
   name: '@deepseek-ai/dsh-session-persistence-jsonl'
   config:
-    root: !!js "process.env.DSH_ACP_SESSIONS_ROOT ?? './.sessions'"
+    root: !!js "process.env.DSH_ACP_SESSIONS_ROOT || dshHomePath('acp-sessions')"
     compression: !!js "process.env.DSH_ACP_SESSION_COMPRESSION ?? 'zstd'"
 - id: checkpoint-policy
   name: '@deepseek-ai/dsh-session-checkpoint-policy'

@@ -2,9 +2,10 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -26,7 +27,8 @@ interface LauncherProcess {
   stop(): Promise<void>
 }
 
-function startLauncher(root: string, home: string, sessions: string): LauncherProcess {
+/** `sessions` undefined leaves the packaged default sessions root in effect. */
+function startLauncher(root: string, home: string, sessions: string | undefined): LauncherProcess {
   const child = spawn(process.execPath, [join(process.cwd(), 'lib', 'bin.js')], {
     cwd: root,
     env: {
@@ -170,6 +172,52 @@ it('recovers one JSONL session across concurrent launcher processes without maki
     )
   } finally {
     await Promise.all([writer.stop(), reader.stop()])
+  }
+})
+
+it('keeps default sessions in the dsh home so a launcher started from another cwd restores them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-acp-home-sessions-'))
+  roots.push(root)
+  const home = join(root, '.dsh')
+  const firstCwd = join(root, 'first')
+  const secondCwd = join(root, 'second')
+  const workspace = join(root, 'workspace')
+  await Promise.all([mkdir(home), mkdir(firstCwd), mkdir(secondCwd), mkdir(workspace)])
+  const writer = startLauncher(firstCwd, home, undefined)
+  let reader: LauncherProcess | undefined
+  try {
+    await writer.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    const created = await writer.client.newSession({ cwd: workspace, mcpServers: [] })
+    await expect(writer.client.prompt({
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: '/plan' }],
+    })).resolves.toEqual({ stopReason: 'end_turn' })
+    await writer.client.closeSession({ sessionId: created.sessionId })
+    await writer.stop()
+
+    const stored = await readdir(join(home, 'acp-sessions'), { recursive: true })
+    expect(stored.some(entry => basename(entry) === created.sessionId)).toBe(true)
+    expect(existsSync(join(firstCwd, '.sessions'))).toBe(false)
+
+    reader = startLauncher(secondCwd, home, undefined)
+    await reader.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
+    await expect(reader.client.listSessions({ cwd: workspace })).resolves.toEqual({
+      sessions: [{ sessionId: created.sessionId, cwd: workspace }],
+    })
+    const loaded = await reader.client.loadSession({
+      sessionId: created.sessionId,
+      cwd: workspace,
+      mcpServers: [],
+    })
+    expect(loaded.modes?.currentModeId).toBe('plan')
+    await reader.client.closeSession({ sessionId: created.sessionId })
+    expect(existsSync(join(secondCwd, '.sessions'))).toBe(false)
+  } catch (error: unknown) {
+    throw new Error(
+      `${String(error)}\nwriter stderr:\n${writer.stderr.join('')}\nreader stderr:\n${reader?.stderr.join('') ?? ''}`,
+    )
+  } finally {
+    await Promise.all([writer.stop(), reader?.stop()])
   }
 })
 

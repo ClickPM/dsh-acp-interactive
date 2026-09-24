@@ -34,7 +34,7 @@ dsh-acp-interactive --setup
 }
 ```
 
-After saving, open Zed's Agent panel (`Ctrl+?` / `Cmd+?`) and select `dsh-acp-interactive` from the dropdown list at the top. Zed starts the server with the workspace as cwd; JSONL sessions live under that workspace's `.sessions`, while every server process owns a separate in-memory SQLite session-query index, so several editor processes can share the JSONL source of truth without contending for the derived index.
+After saving, open Zed's Agent panel (`Ctrl+?` / `Cmd+?`) and select `dsh-acp-interactive` from the dropdown list at the top. JSONL sessions live under `acp-sessions` in the dsh home (see [Configuration](#configuration)), partitioned by each session's cwd and independent of the directory the server was started from; set `DSH_ACP_SESSIONS_ROOT` to keep them elsewhere. Every server process owns a separate in-memory SQLite session-query index, so several editor processes can share the JSONL source of truth without contending for the derived index.
 
 Skipping `--setup` is fine: a thread opened without a stored key shows a `Configure DeepSeek API key` action that runs the same flow (see [Authentication](#authentication)); clients without terminal authentication receive its instructions as an agent-type method instead.
 

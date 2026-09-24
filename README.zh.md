@@ -34,7 +34,7 @@ dsh-acp-interactive --setup
 }
 ```
 
-保存后，在 Zed 的 Agent 面板（快捷键 `Ctrl+?` / `Cmd+?`）顶部的下拉列表中选择 `dsh-acp-interactive` 即可启用。Zed 以当前工作区作为 server cwd，JSONL session 存在该工作区的 `.sessions`；每个 server 进程使用独立的内存 SQLite session-query 索引，因此多个编辑器进程可以共享 JSONL 真源而不争用派生索引。
+保存后，在 Zed 的 Agent 面板（快捷键 `Ctrl+?` / `Cmd+?`）顶部的下拉列表中选择 `dsh-acp-interactive` 即可启用。JSONL session 存在 dsh home（见[配置](#配置)）下的 `acp-sessions`，按各 session 的 cwd 分目录，与 server 从哪个目录启动无关；设置 `DSH_ACP_SESSIONS_ROOT` 可改存别处。每个 server 进程使用独立的内存 SQLite session-query 索引，因此多个编辑器进程可以共享 JSONL 真源而不争用派生索引。
 
 跳过 `--setup` 也可以：没有存好 key 时新开的线程会显示 `Configure DeepSeek API key` 操作，点击后运行同一个流程（见[认证](#认证)）；不支持 terminal authentication 的客户端则以 agent 类型方法收到同样的说明。
 

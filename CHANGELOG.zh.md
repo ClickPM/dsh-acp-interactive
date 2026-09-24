@@ -2,6 +2,12 @@
 
 [dsh-acp-interactive](README.zh.md) 的版本说明。English: [CHANGELOG.md](CHANGELOG.md).
 
+## 1.3.2
+
+`1.3.2` 把 JSONL session 的默认根目录从 `./.sessions`（启动时按 server 进程的工作目录解析）改为 dsh home（`$DSH_HOME`，未设置时为当前用户默认的 `.dsh` 目录）下的 `acp-sessions`。根目录之下本来就按各 session 自己的 cwd 分目录，进程工作目录只决定了一个进程能看到哪些 session：客户端用同一个 server 进程服务多个工作区、或换到另一个工作区重启 server 后，就再也列不出、载不回它自己写过的 session，而且每个启动目录都会多出一个 `.sessions` 文件夹。`DSH_ACP_SESSIONS_ROOT` 仍可覆盖根目录，空值现在视为未设置。
+
+已有的 session 不会被搬动。想继续用旧位置，把 `DSH_ACP_SESSIONS_ROOT` 设为它；想把旧历史带过来，把旧 `.sessions` 下的项目目录移到新根目录下即可，根目录之下的布局没有变化。见 [Home Sessions Root Agent Note](docs/agent-notes/2026-09-24-home-sessions-root.md)。
+
 ## 1.3.1
 
 `1.3.1` 将组合的 DeepSeek Harness 基线从 `0.1.5-rc.1` 提升至 `0.1.5-rc.3`。公布的 ACP 能力面与运行时行为保持完全一致：ACP SDK 仍固定在 `1.4.0`，且官方发布的全部 12 个 ACP spec 与 `0.1.5-rc.1` 逐字节相同。

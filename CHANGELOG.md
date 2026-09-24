@@ -2,6 +2,12 @@
 
 Release notes for [dsh-acp-interactive](README.md). 中文版见 [CHANGELOG.zh.md](CHANGELOG.zh.md).
 
+## 1.3.2
+
+Version `1.3.2` moves the default JSONL sessions root from `./.sessions`, which resolved against the server process's working directory at startup, to `acp-sessions` in the dsh home (`$DSH_HOME`, or the current user's default `.dsh` directory). Logs were already partitioned by each session's own cwd beneath the root, so the process directory only decided which sessions a process could see: a client that served several workspaces from one server process, or restarted the server from another workspace, could no longer list or load the sessions it had written, and every launch directory gained a `.sessions` folder. `DSH_ACP_SESSIONS_ROOT` still overrides the root, and a blank value now counts as unset.
+
+Existing sessions are not moved. To keep using a previous location, set `DSH_ACP_SESSIONS_ROOT` to it; to carry old history over, move the project directories under an old `.sessions` into the new root, since the layout beneath the root is unchanged. See the [Home Sessions Root Agent Note](docs/agent-notes/2026-09-24-home-sessions-root.md).
+
 ## 1.3.1
 
 Version `1.3.1` moves the composed DeepSeek Harness baseline from `0.1.5-rc.1` to `0.1.5-rc.3`. The advertised ACP surface and runtime behaviors remain unchanged: the ACP SDK pin stays at `1.4.0`, and all twelve official ACP specs remain byte-for-byte identical to `0.1.5-rc.1`.
