@@ -2,6 +2,16 @@
 
 Release notes for [dsh-acp-interactive](README.md). 中文版见 [CHANGELOG.zh.md](CHANGELOG.zh.md).
 
+## 1.4.1
+
+Version `1.4.1` moves the composed DeepSeek Harness baseline from `0.2.0-rc.1` to `0.2.0-rc.2` and corrects the official DeepSeek model directory. The advertised ACP surface remains on `@agentclientprotocol/sdk` `1.4.0`, and no runtime source changed: `rc.2` is a patch-level prerelease of the same line, published about twenty-one hours after `rc.1`.
+
+- **Baseline moved deliberately**: `package.json` declared `^0.2.0-rc.1`, so a fresh install already resolved `0.2.0-rc.2` while the lockfile and the compatibility gate still reported on `0.2.0-rc.1`. The range, `package-lock.json`, and `config/upstream-baseline.json` now name `0.2.0-rc.2`. Because every `rc.2` package pins its siblings with exact `peerDependencies`, moving the tree needed a clean resolution rather than an incremental install.
+- **No runtime adaptation needed**: the twelve official ACP specs are byte-identical to `rc.1`, the session format still ends at `session-format-v3-to-v4`, the preset patch files `check:profile` audits are unchanged, and `app-boot` patch semantics are untouched. Within the composed set, only `llm-pi-ai` changed source (catalog and replay).
+- **Official DeepSeek directory corrected**: the `llm-deepseek` row now advertises the two models the service actually serves — `deepseek-flash` (DeepSeek V4.1 Flash, image-capable) and `deepseek-v4-pro` — instead of three, which included the retired `deepseek-v4-flash-vision-exp` multimodal beta. The user patch layer is still `$DSH_HOME/cordis.patch.yml`, whose routes are unaffected.
+
+See the [Upstream 0.2.0-rc.2 Baseline Agent Note](docs/agent-notes/2026-09-29-upstream-0.2.0-rc.2-baseline.md).
+
 ## 1.4.0
 
 Version `1.4.0` moves the composed DeepSeek Harness baseline from `0.1.5-rc.3` to `0.2.0-rc.1`. The advertised ACP surface remains on `@agentclientprotocol/sdk` `1.4.0`.

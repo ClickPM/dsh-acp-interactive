@@ -7,12 +7,13 @@
     "cannot silently drift with a developer's working tree.",
     "Every official ACP spec file must be classified below. An unclassified file",
     "fails the run: a new official assertion is a review event, not a silent skip.",
-    "Re-reviewed at dsh-v0.2.0-rc.1: the official package publishes the same twelve",
-    "spec files. codec.spec.ts is aligned and passes against src/codec.ts; bridge, dispose,",
+    "Re-reviewed at dsh-v0.2.0-rc.2: the official package publishes the same twelve",
+    "spec files, byte-identical to rc.1, and the session format still ends at v4.",
+    "codec.spec.ts is aligned and passes against src/codec.ts; bridge, dispose,",
     "turns, updates, and harness classifications below still hold."
   ],
-  "ref": "dsh-v0.2.0-rc.1",
-  "packageVersion": "0.2.0-rc.1",
+  "ref": "dsh-v0.2.0-rc.2",
+  "packageVersion": "0.2.0-rc.2",
   "acpTestPath": "packages/acp/acp/tests",
   "sharedFixturePaths": [
     "packages/mcp/mcp-client/tests"

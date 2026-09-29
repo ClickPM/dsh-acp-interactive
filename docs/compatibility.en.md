@@ -23,11 +23,13 @@ This matrix applies to `deepseekharness-acp-interactive 1.4.0`, stable ACP v1, a
 
 ## Pinned upstream baseline
 
-The composed Harness packages are pinned to `0.2.0-rc.1`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.2.0-rc.1` that `npm run test:harness` extracts its specs from.
+The composed Harness packages are pinned to `0.2.0-rc.2`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.2.0-rc.2` that `npm run test:harness` extracts its specs from.
 
-At `0.1.2-rc.1` the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. Subsequent baselines (0.1.5 through 0.2.0-rc.1) leave that surface where it was: the official package still pins ACP SDK `1.4.0`, publishes the same twelve spec files, and remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
+At `0.1.2-rc.1` the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. Subsequent baselines (0.1.5 through 0.2.0-rc.2) leave that surface where it was: the official package still pins ACP SDK `1.4.0`, publishes the same twelve spec files, and remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
 
 What moved at `0.2.0-rc.1` is the runtime underneath: first-class `role: 'tool'` `ToolResultMessage` replacing user-embedded `tool-result` content blocks, profile-owned live configuration replacing global `settings.yaml`, shell execution converging on `execute()` with timeout promotion to jobs, and `@modelcontextprotocol/client` (MCP SDK 2.0) with auto version negotiation. See the [Upstream 0.2.0-rc.1 Baseline Agent Note](agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md).
+
+`0.2.0-rc.2` is a patch-level prerelease of that same line and needed no runtime adaptation: the twelve official specs are byte-identical to `rc.1`, the session format still ends at v4, the preset patch files are unchanged, and the only composed package with source changes is `llm-pi-ai` (catalog and replay). The pin moved because `^0.2.0-rc.1` already resolved `rc.2` in a fresh install, which would have left the gate reporting on a tree the shipped package no longer installs. See the [Upstream 0.2.0-rc.2 Baseline Agent Note](agent-notes/2026-09-29-upstream-0.2.0-rc.2-baseline.md).
 
 That difference is why only the specs classified as aligned in `config/upstream-baseline.json` run verbatim. The rest are recorded as explicit divergences of two kinds:
 

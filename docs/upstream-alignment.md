@@ -230,3 +230,5 @@ fixture 必须记录来源 Zed 版本和 commit，升级 fixture 时评审 capab
 截至 `1.3.0` 后续跟进：固定基线进一步经评审移至 `dsh-v0.1.5-rc.3`。官方包发布的 spec 集合与内容和 `0.1.5-rc.1` 保持完全一致；上游变动仅涉及 Web 前端反馈交互/产物图标回退及 monorepo vendor 依赖规范化锁定，ACP 与运行时行为保持零偏差。见 [Upstream 0.1.5-rc.3 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md)。
 
 截至 `1.4.0`：固定基线经评审移至 `dsh-v0.2.0-rc.1`。运行时升级包括：一等公民 `role: 'tool'` `ToolResultMessage` 取代嵌入 user 消息的 `tool-result` content block，profile 拥有的实时配置补丁取代全局 `settings.yaml`，shell 执行收敛至 `execute()` 并支持超时自动晋升，以及迁移至 `@modelcontextprotocol/client`（MCP SDK 2.0）。见 [Upstream 0.2.0-rc.1 Baseline Agent Note](agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md)。
+
+截至 `1.4.1`：固定基线经评审移至 `dsh-v0.2.0-rc.2`，属同一产品线的补丁级预发布，无需运行时适配——十二个官方 spec 与 `rc.1` 逐字节相同，session format 仍止于 v4，preset patch 文件未变，组合中唯一有源码改动的包是 `llm-pi-ai`（catalog 与 replay）。移动 pin 的原因是 `^0.2.0-rc.1` 在新装时本就解析到 `rc.2`。见 [Upstream 0.2.0-rc.2 Baseline Agent Note](agent-notes/2026-09-29-upstream-0.2.0-rc.2-baseline.md)。

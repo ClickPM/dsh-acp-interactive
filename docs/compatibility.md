@@ -23,11 +23,13 @@
 
 ## 固定上游基线
 
-组合的 Harness 包固定在 `0.2.0-rc.1`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.2.0-rc.1`，`npm run test:harness` 从该 ref 提取 spec。
+组合的 Harness 包固定在 `0.2.0-rc.2`，`config/upstream-baseline.json` 记录对应的官方 git ref `dsh-v0.2.0-rc.2`，`npm run test:harness` 从该 ref 提取 spec。
 
-在 `0.1.2-rc.1`，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。后续基线（0.1.5 至 0.2.0-rc.1）没有再移动这个能力面：官方包仍固定 ACP SDK `1.4.0`，发布的仍是同样十二个 spec 文件，也仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
+在 `0.1.2-rc.1`，官方 `@deepseek-ai/dsh-acp` transport 向本服务器的设计大幅收敛：新增了 `session/list`、`session/resume`、`session/close`、`session/set_config_option`、按会话组合 MCP 和 `usage_update`。后续基线（0.1.5 至 0.2.0-rc.2）没有再移动这个能力面：官方包仍固定 ACP SDK `1.4.0`，发布的仍是同样十二个 spec 文件，也仍是 automation-only transport，因此本面向编辑器的服务器仍然公布严格更多的能力：`session/load`、slash 命令与 skill、带 diff 和终端内容的工具自有展示卡片、form elicitation、权限配置和终端认证。
 
 `0.2.0-rc.1` 移动的是底下的运行时：一等公民 `role: 'tool'` `ToolResultMessage` 取代嵌入 user 消息的 `tool-result` content block，profile 拥有的实时配置补丁取代全局 `settings.yaml`，shell 执行收敛至 `execute()` 并支持超时任务自动晋升为后台 job，以及迁移至 `@modelcontextprotocol/client`（MCP SDK 2.0）并启用自动版本协商。见 [Upstream 0.2.0-rc.1 Baseline Agent Note](agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md)。
+
+`0.2.0-rc.2` 是同一产品线的补丁级预发布，无需任何运行时适配：十二个官方 spec 与 `rc.1` 逐字节相同，session format 仍止于 v4，preset patch 文件未变，组合中唯一有源码改动的包是 `llm-pi-ai`（catalog 与 replay）。移动该 pin 的原因是 `^0.2.0-rc.1` 在新装时本就解析到 `rc.2`，继续留在 `rc.1` 会让门禁只对一棵已不再被安装的依赖树作报告。见 [Upstream 0.2.0-rc.2 Baseline Agent Note](agent-notes/2026-09-29-upstream-0.2.0-rc.2-baseline.md)。
 
 这个差异决定了只有 `config/upstream-baseline.json` 中标记为 aligned 的 spec 会原样运行。其余逐个记录为两类显式分歧：
 

@@ -2,6 +2,16 @@
 
 [dsh-acp-interactive](README.zh.md) 的版本说明。English: [CHANGELOG.md](CHANGELOG.md).
 
+## 1.4.1
+
+`1.4.1` 将组合的 DeepSeek Harness 基线从 `0.2.0-rc.1` 升级至 `0.2.0-rc.2`，并修正 DeepSeek 官方模型目录。公布的 ACP 能力面仍基于 `@agentclientprotocol/sdk` `1.4.0`，运行时源码零改动：`rc.2` 是同一产品线的补丁级预发布，发布仅比 `rc.1` 晚约 21 小时。
+
+- **基线是主动移动的**：`package.json` 声明的是 `^0.2.0-rc.1`，因此新装本就解析到 `0.2.0-rc.2`，而 lockfile 与兼容性门禁仍在 `0.2.0-rc.1` 上作报告。现在依赖范围、`package-lock.json` 与 `config/upstream-baseline.json` 统一为 `0.2.0-rc.2`。由于每个 `rc.2` 包都以精确 `peerDependencies` 固定同版兄弟包，升级依赖树必须重新解析而不能增量安装。
+- **无需运行时适配**：十二个官方 ACP spec 与 `rc.1` 逐字节相同，session format 仍止于 `session-format-v3-to-v4`，`check:profile` 审计的 preset patch 文件未变，`app-boot` 的补丁语义也未改动。组合范围内只有 `llm-pi-ai` 有源码改动（catalog 与 replay）。
+- **修正 DeepSeek 官方模型目录**：`llm-deepseek` 行现在只公布服务实际提供的两个模型——`deepseek-flash`（DeepSeek V4.1 Flash，支持图片）与 `deepseek-v4-pro`，不再包含已停用的 `deepseek-v4-flash-vision-exp` 多模态内测版。用户 patch 层仍为 `$DSH_HOME/cordis.patch.yml`，其 route 不受影响。
+
+详见 [Upstream 0.2.0-rc.2 Baseline Agent Note](docs/agent-notes/2026-09-29-upstream-0.2.0-rc.2-baseline.md)。
+
 ## 1.4.0
 
 `1.4.0` 将组合的 DeepSeek Harness 基线从 `0.1.5-rc.3` 升级至 `0.2.0-rc.1`。公布的 ACP 能力面仍基于 `@agentclientprotocol/sdk` `1.4.0`。
