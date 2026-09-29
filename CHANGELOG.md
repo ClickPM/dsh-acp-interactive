@@ -2,6 +2,19 @@
 
 Release notes for [dsh-acp-interactive](README.md). 中文版见 [CHANGELOG.zh.md](CHANGELOG.zh.md).
 
+## 1.4.0
+
+Version `1.4.0` moves the composed DeepSeek Harness baseline from `0.1.5-rc.3` to `0.2.0-rc.1`. The advertised ACP surface remains on `@agentclientprotocol/sdk` `1.4.0`.
+
+Key runtime adaptations for upstream 0.2.0-rc.1:
+- **First-class ToolResultMessage**: Tool results are now represented as top-level `role: 'tool'` messages (`ToolResultMessage`) rather than user-embedded `tool-result` content blocks. Event projection and history replay validation now read `toolCallId`, `isError`, and output `content` directly from the message.
+- **Profile-owned live configuration**: Adapting to upstream's removal of global `settings.yaml` and `@deepseek-ai/dsh-settings-file`, the standalone launcher now resolves user patches from `$DSH_HOME/cordis.patch.yml`, while transparently importing legacy `$DSH_HOME/settings.yaml` as patch layers. Replaced `@deepseek-ai/dsh-llm-deepseek` with the `@deepseek-ai/dsh-llm-deepseek-api-key` plugin.
+- **Shell execution convergence**: Followed upstream's convergence from `ctx.shell.run()` to `ctx.shell.execute()`, supporting timeout command promotion to background jobs.
+- **MCP Client 2.0**: `@deepseek-ai/dsh-mcp-client@0.2.0-rc.1` migrated to `@modelcontextprotocol/client` (MCP SDK 2.0) with auto version negotiation.
+- **Editor profile and baseline reconciliation**: Preset reference files point to `packages/bundle/web-app/presets/standard.patch.yml`, and `dsh-workflow-ptc` replaces the former worker thread package in the deferred workflow review boundary.
+
+See the [Upstream 0.2.0-rc.1 Baseline Agent Note](docs/agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md).
+
 ## 1.3.2
 
 Version `1.3.2` moves the default JSONL sessions root from `./.sessions`, which resolved against the server process's working directory at startup, to `acp-sessions` in the dsh home (`$DSH_HOME`, or the current user's default `.dsh` directory). Logs were already partitioned by each session's own cwd beneath the root, so the process directory only decided which sessions a process could see: a client that served several workspaces from one server process, or restarted the server from another workspace, could no longer list or load the sessions it had written, and every launch directory gained a `.sessions` folder. `DSH_ACP_SESSIONS_ROOT` still overrides the root, and a blank value now counts as unset.

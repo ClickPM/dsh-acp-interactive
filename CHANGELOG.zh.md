@@ -2,6 +2,19 @@
 
 [dsh-acp-interactive](README.zh.md) 的版本说明。English: [CHANGELOG.md](CHANGELOG.md).
 
+## 1.4.0
+
+`1.4.0` 将组合的 DeepSeek Harness 基线从 `0.1.5-rc.3` 升级至 `0.2.0-rc.1`。公布的 ACP 能力面仍基于 `@agentclientprotocol/sdk` `1.4.0`。
+
+适配 0.2.0-rc.1 运行时的核心调整：
+- **一等公民 ToolResultMessage**：工具结果从原先嵌入 user 消息的 `tool-result` content block 重构为顶层的 `role: 'tool'` 消息（`ToolResultMessage`）。事件投影与历史回放校验改为直接从消息提取 `toolCallId`、`isError` 与输出 `content`。
+- **Profile 声明式实时配置**：因上游删除了全局 `settings.yaml` 与 `@deepseek-ai/dsh-settings-file`，独立启动器改为支持从 `$DSH_HOME/cordis.patch.yml` 加载用户配置补丁，并无缝兼容自动迁移旧版 `$DSH_HOME/settings.yaml`；将官方插件入口更新为 `@deepseek-ai/dsh-llm-deepseek-api-key`。
+- **Shell 执行收敛至 `execute()`**：跟进上游对 `ctx.shell.run()` 的废弃，全面收敛至 `ctx.shell.execute()` 并支持超时任务自动晋升为后台 job。
+- **MCP Client 2.0**：`@deepseek-ai/dsh-mcp-client@0.2.0-rc.1` 迁移至 `@modelcontextprotocol/client`（MCP SDK 2.0）并启用自动版本协商（`server/discover`）。
+- **Editor Profile 对账更新**：预设参照文件更新为 `packages/bundle/web-app/presets/standard.patch.yml`，并将暂缓审查的 workflow 伴生包调整为 `dsh-workflow-ptc`。
+
+详见 [Upstream 0.2.0-rc.1 Baseline Agent Note](docs/agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md)。
+
 ## 1.3.2
 
 `1.3.2` 把 JSONL session 的默认根目录从 `./.sessions`（启动时按 server 进程的工作目录解析）改为 dsh home（`$DSH_HOME`，未设置时为当前用户默认的 `.dsh` 目录）下的 `acp-sessions`。根目录之下本来就按各 session 自己的 cwd 分目录，进程工作目录只决定了一个进程能看到哪些 session：客户端用同一个 server 进程服务多个工作区、或换到另一个工作区重启 server 后，就再也列不出、载不回它自己写过的 session，而且每个启动目录都会多出一个 `.sessions` 文件夹。`DSH_ACP_SESSIONS_ROOT` 仍可覆盖根目录，空值现在视为未设置。

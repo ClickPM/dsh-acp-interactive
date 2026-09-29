@@ -2,7 +2,7 @@
 
 [中文](compatibility.md) | [English](compatibility.en.md)
 
-This matrix applies to `deepseekharness-acp-interactive 1.3.2`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
+This matrix applies to `deepseekharness-acp-interactive 1.4.0`, stable ACP v1, and `@agentclientprotocol/sdk 1.4.0`. Results are based on Zed release notes, the current Zed ACP client capability declaration, and this repository's real NDJSON launcher/connection tests.
 
 | Zed version | Status | Capability scope |
 | --- | --- | --- |
@@ -23,11 +23,11 @@ This matrix applies to `deepseekharness-acp-interactive 1.3.2`, stable ACP v1, a
 
 ## Pinned upstream baseline
 
-The composed Harness packages are pinned to `0.1.5-rc.3`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.1.5-rc.3` that `npm run test:harness` extracts its specs from.
+The composed Harness packages are pinned to `0.2.0-rc.1`, and `config/upstream-baseline.json` records the matching official git ref `dsh-v0.2.0-rc.1` that `npm run test:harness` extracts its specs from.
 
-At `0.1.2-rc.1` the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. `0.1.5` (rc.1 through rc.3) leaves that surface where it was: the official package still pins ACP SDK `1.4.0`, publishes the same twelve spec files, and remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
+At `0.1.2-rc.1` the official `@deepseek-ai/dsh-acp` transport converged on much of this server's design — it gained `session/list`, `session/resume`, `session/close`, `session/set_config_option`, per-session MCP composition, and `usage_update`. Subsequent baselines (0.1.5 through 0.2.0-rc.1) leave that surface where it was: the official package still pins ACP SDK `1.4.0`, publishes the same twelve spec files, and remains an automation-only transport, so this editor-facing server still advertises strictly more: `session/load`, slash commands and skills, tool-owned presentation cards with diffs and terminal content, form elicitation, permission configuration, and terminal authentication.
 
-What did move at `0.1.5` is the runtime underneath: session format v3 embeds each model attempt's provider stream in one durable settlement instead of per-token events, and live text and reasoning deltas reach the editor from the process-local `agent/assistant-stream` frames. Sessions written by earlier releases migrate on first read into a sibling `session.v3.jsonl.zstd` file, so `session/list` and `session/load` keep working on them; see the [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md) and [Upstream 0.1.5-rc.3 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md).
+What moved at `0.2.0-rc.1` is the runtime underneath: first-class `role: 'tool'` `ToolResultMessage` replacing user-embedded `tool-result` content blocks, profile-owned live configuration replacing global `settings.yaml`, shell execution converging on `execute()` with timeout promotion to jobs, and `@modelcontextprotocol/client` (MCP SDK 2.0) with auto version negotiation. See the [Upstream 0.2.0-rc.1 Baseline Agent Note](agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md).
 
 That difference is why only the specs classified as aligned in `config/upstream-baseline.json` run verbatim. The rest are recorded as explicit divergences of two kinds:
 

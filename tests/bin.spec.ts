@@ -336,11 +336,12 @@ it('boots without a Harness checkout and publishes user providers plus official 
       updates,
       candidate => candidate.sessionUpdate === 'available_commands_update',
     )
+    const expectedCommands = process.platform === 'win32'
+      ? ['compact', 'diagnose-windows-sandbox-acl', 'feedback', 'goal', 'permission', 'plan']
+      : ['compact', 'feedback', 'goal', 'permission', 'plan']
     expect(commandUpdate?.sessionUpdate === 'available_commands_update'
       ? commandUpdate.availableCommands.map(command => command.name).sort()
-      : undefined).toEqual([
-      'compact', 'feedback', 'goal', 'permission', 'plan',
-    ])
+      : undefined).toEqual(expectedCommands)
   } catch (error: unknown) {
     throw new Error(`${String(error)}\nstderr:\n${stderr.join('')}`)
   } finally {

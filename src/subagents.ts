@@ -15,7 +15,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentRunEndInfo, SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import type ToolRegistry from '@deepseek-ai/dsh-tools'
@@ -315,10 +315,10 @@ export class SubagentTracker {
       }
       case 'tool/result': {
         if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return undefined
-        const block = event.data.message.content[0]
-        const isError = block.isError === true
-        const view = link.presenter.result(block.toolCallId, block.content, isError, event.data.meta)
-        card.complete(entryKey(session.id, block.toolCallId), isError, view.title)
+        const message = event.data.message
+        const isError = message.isError === true
+        const view = link.presenter.result(message.toolCallId, message.content as ContentBlock[], isError, event.data.meta)
+        card.complete(entryKey(session.id, message.toolCallId), isError, view.title)
         return { card, update: card.progress() }
       }
       case 'assistant/message': {

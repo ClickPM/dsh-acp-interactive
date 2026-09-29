@@ -381,7 +381,7 @@ describe('interactive ACP bridge edges', () => {
     })
     emitOwned(harness, agent, {
       type: 'tool/result', seq: SessionSeq(1), time: 2, surfaceOp: 'append',
-      data: { turn: 1, step: 1, message: { content: [] } as never },
+      data: { turn: 1, step: 1, message: null as never },
     })
     await vi.waitFor(() => {
       expect(warnings.some(message => message.includes('presenter failed'))).toBe(true)
@@ -499,7 +499,7 @@ describe('interactive ACP bridge edges', () => {
     harness.ctx.emit('agent/error', { agent: foreign, turn: 1, step: 1, error: new Error('foreign') })
     agent.followup(createUserMessage({
       content: [{ type: 'text', text: 'autonomous' }],
-      source: { kind: 'plugin', plugin: 'test' },
+      source: { kind: 'user' },
     }))
     await vi.waitFor(() => { expect(agent.status).toBe('running') })
     await harness.client.cancel({ sessionId })

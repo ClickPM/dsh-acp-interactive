@@ -223,7 +223,8 @@ describe('session-scoped MCP lifecycle', () => {
       "const lines = readline.createInterface({ input: process.stdin })",
       "for await (const line of lines) {",
       " const message = JSON.parse(line)",
-      " if (message.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result:{protocolVersion:message.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'bad',version:'1'}}})+'\\n')",
+      " if (message.method === 'server/discover') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,error:{code:-32601,message:'Method not found'}})+'\\n')",
+      " else if (message.method === 'initialize') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result:{protocolVersion:message.params.protocolVersion,capabilities:{tools:{}},serverInfo:{name:'bad',version:'1'}}})+'\\n')",
       " else if (message.method === 'tools/list') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:message.id,result:{tools:'invalid'}})+'\\n')",
       "}",
     ].join('\n'))

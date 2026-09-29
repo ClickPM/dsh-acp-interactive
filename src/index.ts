@@ -1350,13 +1350,13 @@ function projectEvent(
     }
     case 'tool/result': {
       if (event.surfaceOp !== undefined && event.surfaceOp !== 'append') return []
-      const block = event.data.message.content[0]
-      const isError = block.isError === true
-      const view = record.presenter.result(block.toolCallId, block.content, isError, event.data.meta)
-      const update = projectToolResult(block.toolCallId, view, isError, record.terminal)
+      const message = event.data.message
+      const isError = message.isError === true
+      const view = record.presenter.result(message.toolCallId, message.content as ContentBlock[], isError, event.data.meta)
+      const update = projectToolResult(message.toolCallId, view, isError, record.terminal)
       // The parent's own result settles the card; the child transcript stays
       // ahead of the result, and no later child event can reach the card.
-      const card = delegations?.settle(record.agent, block.toolCallId)
+      const card = delegations?.settle(record.agent, message.toolCallId)
       return [card === undefined ? update : card.settle(update)]
     }
     case 'todo/write':
@@ -1464,7 +1464,6 @@ async function replayMessageContent(
         })
         break
       case 'tool-call':
-      case 'tool-result':
         /* v8 ignore next 3 -- validateReplayableHistory rejects tool blocks in a user message first. */
         if (kind === 'user_message_chunk') {
           throw new Error(`unsupported restored user message content: ${block.type}`)
@@ -1491,7 +1490,7 @@ function validateReplayableHistory(events: readonly SessionEvent[]): void {
         }
       }
     } else if (event.type === 'assistant/message') {
-      const supportedTypes: ReadonlySet<string> = new Set(['text', 'reasoning', 'image', 'tool-call', 'tool-result'])
+      const supportedTypes: ReadonlySet<string> = new Set(['text', 'reasoning', 'image', 'tool-call'])
       for (const block of event.data.message.content) {
         /* v8 ignore next 2 -- typed first-party content is exhaustive; durable data still fails closed. */
         if (!supportedTypes.has(block.type)) {
@@ -1499,10 +1498,9 @@ function validateReplayableHistory(events: readonly SessionEvent[]): void {
         }
       }
     } else if (event.type === 'tool/result') {
-      const block = event.data.message.content[0]
-      for (const content of block.content) {
-        if (content.type !== 'text') {
-          throw new Error(`unsupported restored tool result content: ${content.type}`)
+      for (const block of event.data.message.content) {
+        if (block.type !== 'text') {
+          throw new Error(`unsupported restored tool result content: ${block.type}`)
         }
       }
     }

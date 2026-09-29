@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { finished } from 'node:stream'
 import { boot, installFailLoud, loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { DSH_LAUNCH_ENVIRONMENT_KEY } from '@deepseek-ai/dsh-launch-environment'
-import { runDeepSeekApiKeySetup } from './setup.js'
+import { loadUserPatches, runDeepSeekApiKeySetup } from './setup.js'
 
 const packageRoot = dirname(fileURLToPath(import.meta.url))
 const configPath = join(packageRoot, '..', 'config', 'cordis.yml')
@@ -14,10 +15,12 @@ const setupConfigPath = join(packageRoot, '..', 'config', 'setup.yml')
 installFailLoud('dsh-acp-interactive')
 const environment = loadLayeredEnv('dsh-acp-interactive')
 const setup = process.argv.slice(2).includes('--setup')
+const home = environment.get('DSH_HOME')?.value ?? resolveDshHome()
+const userPatches = loadUserPatches('dsh-acp-interactive', home)
 const ctx = await boot(
   'dsh-acp-interactive',
   setup ? setupConfigPath : configPath,
-  undefined,
+  userPatches,
   host => { host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment) },
 )
 if (setup) {

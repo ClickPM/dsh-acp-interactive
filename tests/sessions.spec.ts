@@ -461,7 +461,7 @@ describe('interactive ACP persisted sessions', () => {
     Object.assign(user.data, { content: [{ type: 'text', text: 'restored' }] })
     const result = events.find(event => event.type === 'tool/result')
     if (result?.type !== 'tool/result') throw new Error('missing tool result')
-    Object.assign(result.data.message.content[0], { content: [{
+    Object.assign(result.data.message, { content: [{
       type: 'image',
       attachment: { attachmentId: 'result-image', mediaType: 'image/png', bytes: 1 },
     }] })

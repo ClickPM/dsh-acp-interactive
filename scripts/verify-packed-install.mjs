@@ -67,9 +67,9 @@ try {
     '@deepseek-ai/dsh-mcp-client',
     '@deepseek-ai/dsh-subprocess',
     '@deepseek-ai/dsh-timeout',
-    '@modelcontextprotocol/sdk',
     'zod',
   ]) requireFromInstall.resolve(`${name}/package.json`)
+  requireFromInstall.resolve('@modelcontextprotocol/client')
   requireFromInstall.resolve('@vscode/ripgrep')
 
   const mcpMarker = join(root, 'mcp-lifecycle.log')
@@ -83,7 +83,8 @@ try {
     "for await (const line of lines) {",
     " const message = JSON.parse(line)",
     " let result",
-    " if (message.method === 'initialize') result = { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'packed', version: '1' } }",
+    " if (message.method === 'server/discover') process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } }) + '\\n')",
+    " else if (message.method === 'initialize') result = { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'packed', version: '1' } }",
     " else if (message.method === 'tools/list') { appendFileSync(marker, 'listed\\n'); result = { tools: [{ name: 'ping', description: 'Packed install probe', inputSchema: { type: 'object', properties: {} } }] } }",
     " else if (message.method === 'tools/call') result = { content: [{ type: 'text', text: 'pong' }] }",
     " if (message.id !== undefined && result !== undefined) process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\\n')",

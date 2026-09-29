@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   boot: vi.fn(),
   dispose: vi.fn(() => Promise.resolve()),
-  environment: { values: new Map() },
+  environment: { values: new Map(), get: vi.fn() },
   installFailLoud: vi.fn(),
   loadLayeredEnv: vi.fn(),
   provide: vi.fn(),
@@ -18,6 +18,11 @@ vi.mock('@deepseek-ai/dsh-app-boot', () => ({
   boot: mocks.boot,
   installFailLoud: mocks.installFailLoud,
   loadLayeredEnv: mocks.loadLayeredEnv,
+}))
+
+vi.mock('../src/setup.js', () => ({
+  loadUserPatches: vi.fn(() => undefined),
+  runDeepSeekApiKeySetup: vi.fn(),
 }))
 
 vi.mock('node:stream', async (importOriginal) => {

@@ -28,7 +28,7 @@
     "@deepseek-ai/dsh-invariants",
     "@deepseek-ai/dsh-jobs-local",
     "@deepseek-ai/dsh-llm",
-    "@deepseek-ai/dsh-llm-deepseek",
+    "@deepseek-ai/dsh-llm-deepseek-api-key",
     "@deepseek-ai/dsh-llm-pi-ai",
     "@deepseek-ai/dsh-llm-retry",
     "@deepseek-ai/dsh-permission-presets",
@@ -45,7 +45,6 @@
     "@deepseek-ai/dsh-session-title",
     "@deepseek-ai/dsh-session-title-first-prompt-llm",
     "@deepseek-ai/dsh-session/invariant",
-    "@deepseek-ai/dsh-settings-file",
     "@deepseek-ai/dsh-shell-env",
     "@deepseek-ai/dsh-skill",
     "@deepseek-ai/dsh-skill-filesystem",
@@ -183,7 +182,7 @@
       "reason": "Workflow worker threads need their own cancellation, settlement, and teardown coverage before inclusion.",
       "excludedCompositionPackages": [
         "@deepseek-ai/dsh-tool-workflow",
-        "@deepseek-ai/dsh-workflow-worker-thread",
+        "@deepseek-ai/dsh-workflow-ptc",
         "@deepseek-ai/dsh-tool-ralph"
       ]
     }
@@ -191,7 +190,7 @@
   "reconciliation": {
     "referenceFiles": [
       "packages/bundle/base/cordis.patch.yml",
-      "packages/preset/agent-presets/presets/standard/agent.cordis.yml"
+      "packages/bundle/web-app/presets/standard.patch.yml"
     ],
     "candidatePatterns": [
       "^@deepseek-ai/dsh-(?:(?:command-.+)|permission-presets$|plan-mode$|skill-filesystem$|goal(?:-.+)?$|jobs-local$|web(?:-.+)?$|lsp(?:-.+)?$|terminal(?:-.+)?$|subagent(?:-.+)?$|workflow(?:-.+)?$|spill(?:-.+)?$|compaction-tool-result-pruner$|tool-(?:fs-search|goal|jobs|web|ralph|subagent(?:-.+)?|workflow)$|tool-call-timeout-policy$)"
@@ -232,7 +231,7 @@
         "@deepseek-ai/dsh-web",
         "@deepseek-ai/dsh-web-fetch-http",
         "@deepseek-ai/dsh-web-search-deepseek",
-        "@deepseek-ai/dsh-workflow-worker-thread"
+        "@deepseek-ai/dsh-workflow-ptc"
       ],
       "humanCommands": ["compact", "feedback", "goal", "permission", "plan"],
       "requiredProviders": [
@@ -250,7 +249,7 @@
         "@deepseek-ai/dsh-web",
         "@deepseek-ai/dsh-web-fetch-http",
         "@deepseek-ai/dsh-web-search-deepseek",
-        "@deepseek-ai/dsh-workflow-worker-thread"
+        "@deepseek-ai/dsh-workflow-ptc"
       ],
       "criticalConsumers": [
         "@deepseek-ai/dsh-command-compact",

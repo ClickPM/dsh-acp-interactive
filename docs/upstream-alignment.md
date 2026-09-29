@@ -228,3 +228,5 @@ fixture 必须记录来源 Zed 版本和 commit，升级 fixture 时评审 capab
 截至 `1.2.0`：固定基线经由 `1.1.0` 那道门所要求的评审移到了 `dsh-v0.1.5-rc.1`。官方包发布的 spec 集合不变，aligned 的 `codec.spec.ts` 逐字节相同，因此该门在仅改 ref 的情况下即通过；运行时的工作在别处——实时流式输出改由进程内的 `agent/assistant-stream` frame 提供而非耐久的逐 token 事件，v0 格式的 session 日志在首次读取时旁路迁移为 v3，`check:profile` 也已修复（其官方参照文件在 `0.1.2-rc.1` 之前就已搬走，所以自 `1.1.0` 起它一直是崩溃而非运行）。见 [Upstream 0.1.5-rc.1 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.1-baseline.md)。trusted publishing 的启用、Q0、Q2 的最新上游定时观察和 Q3 仍待完成。
 
 截至 `1.3.0` 后续跟进：固定基线进一步经评审移至 `dsh-v0.1.5-rc.3`。官方包发布的 spec 集合与内容和 `0.1.5-rc.1` 保持完全一致；上游变动仅涉及 Web 前端反馈交互/产物图标回退及 monorepo vendor 依赖规范化锁定，ACP 与运行时行为保持零偏差。见 [Upstream 0.1.5-rc.3 Baseline Agent Note](agent-notes/2026-09-10-upstream-0.1.5-rc.3-baseline.md)。
+
+截至 `1.4.0`：固定基线经评审移至 `dsh-v0.2.0-rc.1`。运行时升级包括：一等公民 `role: 'tool'` `ToolResultMessage` 取代嵌入 user 消息的 `tool-result` content block，profile 拥有的实时配置补丁取代全局 `settings.yaml`，shell 执行收敛至 `execute()` 并支持超时自动晋升，以及迁移至 `@modelcontextprotocol/client`（MCP SDK 2.0）。见 [Upstream 0.2.0-rc.1 Baseline Agent Note](agent-notes/2026-09-28-upstream-0.2.0-rc.1-baseline.md)。

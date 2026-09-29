@@ -51,7 +51,7 @@ function callEcho(id: string, text: string): StreamChunk[] {
  * context the harness appends for a delegated child is plugin-sourced.
  */
 function delegatedPrompt(options: GenerateOptions): string {
-  const message = options.messages.find(candidate => candidate.role === 'user' && candidate.source.kind === 'user')
+  const message = options.messages.find(candidate => candidate.role === 'user' && candidate.source?.kind === 'user')
   return message?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') ?? ''
 }
 
@@ -253,7 +253,7 @@ describe('interactive ACP subagent projection', () => {
     // A malformed child event is contained while the child is still linked.
     harness.ctx.emit('session/event', Session.create(child.id), {
       type: 'tool/result', seq: SessionSeq(98), time: 1, surfaceOp: 'append',
-      data: { turn: 1, step: 1, message: { content: [] } as never },
+      data: { turn: 1, step: 1, message: null as never },
     })
     expect(warnings.some(message => message.includes('subagent event projection failed'))).toBe(true)
 
@@ -353,7 +353,7 @@ describe('subagent tracker', () => {
       type: 'tool/result', seq: SessionSeq(2), time: 2, surfaceOp,
       data: {
         turn: 1, step: 1,
-        message: { content: [{ type: 'tool-result', toolCallId: ToolCallId(callId), content: [{ type: 'text', text: 'ok' }], isError }] },
+        message: { role: 'tool', toolCallId: ToolCallId(callId), content: [{ type: 'text', text: 'ok' }], isError },
       },
     } as never
   }

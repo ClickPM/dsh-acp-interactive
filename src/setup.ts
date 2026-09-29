@@ -4,9 +4,38 @@
  */
 
 import { createInterface } from 'node:readline'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { Writable, type Readable } from 'node:stream'
+import { loadOptionalPatches, PROFILE_PATCH_FILENAME } from '@deepseek-ai/dsh-app-boot'
+import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { parse } from 'yaml'
 import { DEEPSEEK_API_KEY } from './auth.js'
+
+/**
+ * Load user patch layers from the dsh home: `$DSH_HOME/cordis.patch.yml`
+ * or legacy `$DSH_HOME/settings.yaml`.
+ */
+export function loadUserPatches(binName: string, home: string = resolveDshHome()): PatchOptions[] | undefined {
+  const patchFile = join(home, PROFILE_PATCH_FILENAME)
+  const patches = loadOptionalPatches(binName, patchFile)
+  if (patches !== undefined && patches.length > 0) return patches
+  const legacySettings = join(home, 'settings.yaml')
+  if (existsSync(legacySettings)) {
+    try {
+      const content = readFileSync(legacySettings, 'utf8')
+      const doc = parse(content) as unknown
+      if (typeof doc === 'object' && doc !== null && !Array.isArray(doc)) {
+        return Object.entries(doc).map(([id, config]) => ({ id, config: config as Record<string, unknown> }))
+      }
+    } catch {
+      // ignore malformed legacy settings
+    }
+  }
+  return undefined
+}
 
 interface SetupIO {
   input: Readable
