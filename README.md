@@ -72,23 +72,20 @@ Version `1.3.0` adds in-process subagents. The composed profile mounts the publi
 
 ## Configuration
 
-State lives in the dsh home — `$DSH_HOME`, or the current user's default `.dsh` directory — where `settings.yaml` holds providers and model catalogs and `.credentials.yaml` holds credentials. Pi Agent Desktop and Zed ACP can therefore share provider profiles, model catalogs, and credential references without copying API keys into Zed or `cordis.yml`; a profile's `apiKeyEnv` must match a key under `.credentials.yaml` `refs`, and the two remain separate processes with isolated sessions. Changes to `settings.yaml` refresh the provider directory through the existing settings and LLM-registry update path, and the bundled dormant `llm-pi-ai` mount registers every route under `llm-pi-ai.providers`.
+State lives in the dsh home — `$DSH_HOME`, or the current user's default `.dsh` directory — where `cordis.patch.yml` holds this deployment's user patch layers and `.credentials.yaml` holds credentials. Upstream `0.2.0-rc.1` removed the global `settings.yaml` and `@deepseek-ai/dsh-settings-file`, so a patch layer is an array of loader entries (`id`, optional `name`, `config`) applied over the composition at boot; the launcher reads `$DSH_HOME/cordis.patch.yml` and only falls back to a legacy `settings.yaml`, mapped entry by entry, when it is absent or empty. Pi Agent Desktop and Zed ACP can therefore share provider profiles, model catalogs, and credential references without copying API keys into Zed or `cordis.yml`; a profile's `apiKeyEnv` must match a key under `.credentials.yaml` `refs`, and the two remain separate processes with isolated sessions. The bundled `llm-pi-ai` mount registers every route under a patched `providers` dict. Pi owns its own copy at `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, so editing this file never changes Pi's routes.
 
 At startup, Windows registers the native `pwsh` tool while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
 An explicitly configured image-capable model must declare its input modalities; without them the DeepSeek adapter treats the entry as text-only and the bridge rejects image admission before queuing the prompt:
 
 ```yaml
-- id: deepseek-v4-flash-vision-exp
+- id: deepseek-flash
   inputModalities: [text, image]
 ```
 
 Custom deployments may instead consume only the transport export and mount it in a dedicated ACP stdio composition, where `provider` and `model` select the initial route for new sessions without restricting the model selector:
 
 ```yaml
-- id: settings
-  name: '@deepseek-ai/dsh-settings-file'
-
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 

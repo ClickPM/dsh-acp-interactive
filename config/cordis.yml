@@ -5,11 +5,21 @@
   config:
     thinking: enabled
     reasoningEffort: max
+    # The official directory is V4.1 Flash and V4 Pro. The retired
+    # `deepseek-v4-flash-vision-exp` beta is deliberately absent: advertising it
+    # offers a route the service no longer serves. Flash is the image-capable
+    # entry, so it declares its modalities.
     models:
-      - id: deepseek-v4-flash
-      - id: deepseek-v4-pro
-      - id: deepseek-v4-flash-vision-exp
+      - id: deepseek-flash
+        name: DeepSeek V4.1 Flash
+        contextWindow: 1000000
+        maxTokens: 384000
         inputModalities: [text, image]
+      - id: deepseek-v4-pro
+        name: DeepSeek V4 Pro
+        contextWindow: 1000000
+        maxTokens: 384000
+        inputModalities: [text]
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 - id: llm-pi-ai

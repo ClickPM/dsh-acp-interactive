@@ -72,23 +72,20 @@ dsh-acp-interactive --setup
 
 ## 配置
 
-状态保存在 dsh home（`$DSH_HOME`，未设置时为当前用户默认的 `.dsh` 目录）：`settings.yaml` 保存 provider 与模型目录，`.credentials.yaml` 保存凭据。因此 Pi Agent 桌面版与 Zed ACP 可以共享 provider、模型目录和凭据引用，无需把 API key 复制进 Zed 或 `cordis.yml`；profile 的 `apiKeyEnv` 必须与 `.credentials.yaml` 的 `refs` 键名一致，两者仍是相互隔离的进程和 session。运行中修改 `settings.yaml` 后，provider 目录会由 settings 与 LLM registry 的现有动态更新路径刷新；休眠挂载的 `llm-pi-ai` 为 `llm-pi-ai.providers` 中的每条 route 动态注册模型。
+状态保存在 dsh home（`$DSH_HOME`，未设置时为当前用户默认的 `.dsh` 目录）：`cordis.patch.yml` 保存本部署的用户 patch 层，`.credentials.yaml` 保存凭据。上游 `0.2.0-rc.1` 移除了全局 `settings.yaml` 与 `@deepseek-ai/dsh-settings-file`，因此 patch 层是启动时叠加在组合之上的一组 loader 条目（`id`、可选 `name`、`config`）；launcher 读取 `$DSH_HOME/cordis.patch.yml`，仅在该文件缺失或为空时才回退到旧的 `settings.yaml`（逐条映射）。因此 Pi Agent 桌面版与 Zed ACP 可以共享 provider、模型目录和凭据引用，无需把 API key 复制进 Zed 或 `cordis.yml`；profile 的 `apiKeyEnv` 必须与 `.credentials.yaml` 的 `refs` 键名一致，两者仍是相互隔离的进程和 session。休眠挂载的 `llm-pi-ai` 按打补丁后的 `providers` 字典注册每条 route。Pi 使用自己的 `$DSH_HOME/profiles/<profile>/cordis.patch.yml`，改这里的文件不会影响 Pi 的 route。
 
 启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
 显式配置支持图片的模型时必须声明输入模态，否则 DeepSeek adapter 会把该目录项视为纯文字模型，bridge 会在 prompt 入队前拒绝图片：
 
 ```yaml
-- id: deepseek-v4-flash-vision-exp
+- id: deepseek-flash
   inputModalities: [text, image]
 ```
 
 需要自定义部署时，也可以只使用 transport export，并把它放进专用 ACP stdio 组合；其中 `provider` 和 `model` 仅决定新 session 的初始 route，不会限制模型选择器：
 
 ```yaml
-- id: settings
-  name: '@deepseek-ai/dsh-settings-file'
-
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 
