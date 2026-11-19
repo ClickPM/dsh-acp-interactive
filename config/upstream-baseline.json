@@ -7,13 +7,16 @@
     "cannot silently drift with a developer's working tree.",
     "Every official ACP spec file must be classified below. An unclassified file",
     "fails the run: a new official assertion is a review event, not a silent skip.",
-    "Re-reviewed at dsh-v0.2.0-rc.2: the official package publishes the same twelve",
-    "spec files, byte-identical to rc.1, and the session format still ends at v4.",
+    "Re-reviewed at dsh-v0.2.2-rc.5: the official package publishes the same twelve",
+    "spec files (codec.spec.ts remains byte-identical; bridge, dispose, edges,",
+    "model-control, and turns updated for Agent.model selection, origin === 'subagent'",
+    "listing/resume filtering, drainDescendants/waitForTreeWork quiescence, and",
+    "dsh-tool-testkit), and the session format still ends at v4.",
     "codec.spec.ts is aligned and passes against src/codec.ts; bridge, dispose,",
     "turns, updates, and harness classifications below still hold."
   ],
-  "ref": "dsh-v0.2.0-rc.2",
-  "packageVersion": "0.2.0-rc.2",
+  "ref": "dsh-v0.2.2-rc.5",
+  "packageVersion": "0.2.2-rc.5",
   "acpTestPath": "packages/acp/acp/tests",
   "sharedFixturePaths": [
     "packages/mcp/mcp-client/tests"
@@ -38,12 +41,12 @@
     {
       "file": "dispose.spec.ts",
       "kind": "composition",
-      "reason": "Same automation-only harness limitation as approval.spec.ts. This repository's own tests/dispose.spec.ts covers connection ownership and quiescence for the composed editor profile."
+      "reason": "Same automation-only harness limitation as approval.spec.ts (now asserting `subagents.drainDescendants`). This repository's own tests/dispose.spec.ts covers connection ownership and quiescence for the composed editor profile."
     },
     {
       "file": "edges.spec.ts",
       "kind": "composition",
-      "reason": "Same automation-only harness limitation as approval.spec.ts. Covered locally by tests/bridge-edges.spec.ts."
+      "reason": "Same automation-only harness limitation as approval.spec.ts (using `@deepseek-ai/dsh-tool-testkit`). Covered locally by tests/bridge-edges.spec.ts."
     },
     {
       "file": "multi-session.spec.ts",
@@ -53,7 +56,7 @@
     {
       "file": "turns.spec.ts",
       "kind": "composition",
-      "reason": "Same automation-only harness limitation as approval.spec.ts. Covered locally by tests/bridge.spec.ts and tests/schema-conformance.spec.ts."
+      "reason": "Same automation-only harness limitation as approval.spec.ts (exercising `subagents.waitForTreeWork`/`drainDescendants` quiescence and image-admission cancellation). Covered locally by tests/bridge.spec.ts, tests/subagents.spec.ts, and tests/schema-conformance.spec.ts."
     },
     {
       "file": "content.spec.ts",
@@ -68,7 +71,7 @@
     {
       "file": "model-control.spec.ts",
       "kind": "internal-api",
-      "reason": "Imports `../src/model-control.ts`, a module the official package introduced at 0.1.2-rc.1. This repository already served session/set_config_option before that split, from src/config-options.ts and src/index.ts, and encodes model values as an opaque provider:model pair rather than the official JSON tuple. ACP treats the value as opaque, so this is not a protocol difference."
+      "reason": "Imports `../src/model-control.ts` and tests `AgentModel` directly. This repository serves session/set_config_option from src/config-options.ts and src/index.ts over `agent.model`, and encodes model values as an opaque provider:model pair rather than the official JSON tuple. ACP treats the value as opaque, so this is not a protocol difference."
     },
     {
       "file": "updates.spec.ts",

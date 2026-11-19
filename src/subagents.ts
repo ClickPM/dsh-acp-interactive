@@ -19,7 +19,7 @@ import type { ContentBlock, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentRunEndInfo, SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import type ToolRegistry from '@deepseek-ai/dsh-tools'
-import { ToolPresenter, type ToolCallSessionUpdate } from './presentation.js'
+import { ToolPresenter, projectContent, type ToolCallSessionUpdate } from './presentation.js'
 
 /** `_meta` key that carries the child identity on the parent's tool card. */
 export const DELEGATION_META_KEY = 'dsh_subagent'
@@ -49,6 +49,7 @@ type CardContent = NonNullable<ToolCallSessionUpdate['content']>[number]
 
 interface ChildIdentity {
   readonly label: string | undefined
+  readonly name?: string
 }
 
 interface TranscriptEntry {
@@ -62,6 +63,9 @@ interface ChildLink {
   readonly card: SubagentCard
   readonly depth: number
   readonly presenter: ToolPresenter
+  readonly provider: string
+  readonly originKey?: string
+  label: string | undefined
 }
 
 /**
@@ -69,10 +73,10 @@ interface ChildLink {
  * top-level editor session. Children inherit their parent's cwd, so without
  * this test they would be listed and restorable as ordinary sessions.
  * @param header - the session header to classify.
- * @returns true for a subagent child or any seed-lineage descendant.
+ * @returns true for a subagent child session.
  */
-export function isDelegatedSession(header: Pick<SessionHeader, 'origin' | 'parentSession'>): boolean {
-  return header.origin === 'subagent' || header.parentSession !== undefined
+export function isDelegatedSession(header: Pick<SessionHeader, 'origin'>): boolean {
+  return header.origin === 'subagent'
 }
 
 /** The parent-card state of one direct child and every descendant below it. */
@@ -80,25 +84,54 @@ export class SubagentCard {
   private readonly entries: TranscriptEntry[] = []
   private omitted = 0
   private outcome: string | undefined
+  private finalOutput: readonly ContentBlock[] | undefined
+  private parentResult: ToolCallSessionUpdate | undefined
 
   /**
    * @param root - the bridge-owned parent agent whose card this is.
    * @param callId - the parent's tool call that started the child.
    * @param childId - the direct child's session id.
    * @param provider - the `ctx.subagents` provider that established the child.
-   * @param label - the delegation's durable creation label, when one was recorded.
+   * @param labelValue - the delegation's durable creation label, when one was recorded.
+   * @param nameValue - the child's sibling-unique model-facing name, when cataloged.
    */
   constructor(
     readonly root: Agent,
     readonly callId: ToolCallId,
     readonly childId: SessionId,
     readonly provider: string,
-    readonly label: string | undefined,
+    private labelValue: string | undefined,
+    private nameValue?: string,
   ) {}
+
+  /** Durable creation label recorded for this direct child. */
+  get label(): string | undefined {
+    return this.labelValue
+  }
+
+  /** Whether the direct child activation has reported its `subagent/end`. */
+  get isFinished(): boolean {
+    return this.outcome !== undefined
+  }
+
+  /** Whether the parent's non-error `tool/result` arrived while the child was running. */
+  get hasParentResult(): boolean {
+    return this.parentResult !== undefined
+  }
+
+  /** Update label/name when `subagent/catalog` arrives after `subagent/start`. */
+  updateCatalog(label: string | undefined, name: string | undefined): boolean {
+    const labelChanged = label !== undefined && label !== this.labelValue
+    const nameChanged = name !== undefined && name !== this.nameValue
+    if (!labelChanged && !nameChanged) return false
+    if (labelChanged) this.labelValue = label
+    if (nameChanged) this.nameValue = name
+    return true
+  }
 
   /** The first update after attribution: the label as title plus the identity meta. */
   opening(): ToolCallSessionUpdate {
-    return { ...this.progress(), ...this.label === undefined ? {} : { title: this.label } }
+    return { ...this.progress(), ...this.labelValue === undefined ? {} : { title: this.labelValue } }
   }
 
   /** A replacement of the card content with the current transcript. */
@@ -111,16 +144,46 @@ export class SubagentCard {
     }
   }
 
+  /** Record parent tool-result context and keep the card in progress until `subagent/end`. */
+  recordParentResult(result: ToolCallSessionUpdate): ToolCallSessionUpdate {
+    this.parentResult = result
+    return {
+      ...result,
+      status: 'in_progress',
+      content: [this.transcriptBlock()],
+      _meta: { ...result._meta, [DELEGATION_META_KEY]: this.meta() },
+    }
+  }
+
   /**
-   * Place the transcript ahead of the parent's own result projection.
+   * Place the transcript ahead of the final child output or parent result projection.
    * @param result - the update produced from the parent's `tool/result`.
    * @returns the same update carrying the transcript and identity meta.
    */
   settle(result: ToolCallSessionUpdate): ToolCallSessionUpdate {
+    const content = result.status === 'failed' || this.finalOutput === undefined
+      ? result.content ?? []
+      : projectContent(this.finalOutput)
     return {
       ...result,
-      content: [this.transcriptBlock(), ...result.content ?? []],
+      ...result.status === 'failed' || this.outcome === undefined
+        ? {}
+        : { status: this.outcome === 'completed' ? 'completed' : 'failed' },
+      content: [this.transcriptBlock(), ...content],
       _meta: { ...result._meta, [DELEGATION_META_KEY]: this.meta() },
+    }
+  }
+
+  /** Settle a previously deferred card when the direct child ends. */
+  settleDeferred(): ToolCallSessionUpdate {
+    const output = this.finalOutput === undefined ? [] : projectContent(this.finalOutput)
+    return {
+      ...this.parentResult,
+      sessionUpdate: 'tool_call_update',
+      toolCallId: this.callId,
+      status: this.outcome === 'completed' ? 'completed' : 'failed',
+      content: [this.transcriptBlock(), ...output],
+      _meta: { ...this.parentResult?._meta, [DELEGATION_META_KEY]: this.meta() },
     }
   }
 
@@ -164,13 +227,17 @@ export class SubagentCard {
   }
 
   /**
-   * Record a child's terminal stop reason. The direct child's reason is also
-   * carried in the identity meta.
+   * Record a child's terminal stop reason and final assistant output. The direct
+   * child's reason is also carried in the identity meta.
    * @param depth - delegation depth of the settled child.
    * @param stopReason - the seam's terminal vocabulary for the run.
+   * @param lastAssistantMessage - the child's final output blocks, when present.
    */
-  finish(depth: number, stopReason: string): void {
-    if (depth === 1) this.outcome = stopReason
+  finish(depth: number, stopReason: string, lastAssistantMessage?: readonly ContentBlock[]): void {
+    if (depth === 1) {
+      this.outcome = stopReason
+      this.finalOutput = lastAssistantMessage
+    }
     this.append(depth, stopReason === 'completed' ? DONE : FAILED, `Subagent ${stopReason}`)
   }
 
@@ -192,7 +259,8 @@ export class SubagentCard {
     return {
       session_id: this.childId,
       provider: this.provider,
-      ...this.label === undefined ? {} : { label: this.label },
+      ...this.labelValue === undefined ? {} : { label: this.labelValue },
+      ...this.nameValue === undefined ? {} : { name: this.nameValue },
       ...this.outcome === undefined ? {} : { stop_reason: this.outcome },
     }
   }
@@ -234,12 +302,29 @@ export class SubagentTracker {
   }
 
   /**
-   * Remember the durable creation label a parent recorded for a child, which
-   * the seam appends before it publishes the child's start.
+   * Remember or update the durable creation identity a parent recorded for a child.
+   * When `subagent/catalog` arrives after `subagent/start`, update the already-linked
+   * card or descendant entry and return its updated ACP payload when anything changed.
    * @param data - the parent's `subagent/catalog` payload.
    */
-  catalog(data: CatalogData): void {
-    this.identities.set(data.childId, { label: data.label })
+  catalog(data: CatalogData): SubagentCardUpdate | undefined {
+    const name = 'name' in data ? data.name : undefined
+    const link = this.links.get(data.childId)
+    if (link !== undefined) {
+      if (link.card.childId === data.childId) {
+        return link.card.updateCatalog(data.label, name)
+          ? { card: link.card, update: link.card.opening() }
+          : undefined
+      }
+      if (link.originKey !== undefined && data.label !== undefined && data.label !== link.label) {
+        link.label = data.label
+        link.card.retitle(link.originKey, `Subagent \`${link.provider}\`: ${data.label}`)
+        return { card: link.card, update: link.card.progress() }
+      }
+      return undefined
+    }
+    this.identities.set(data.childId, { label: data.label, ...name === undefined ? {} : { name } })
+    return undefined
   }
 
   /**
@@ -260,37 +345,51 @@ export class SubagentTracker {
     const origin = this.origins.getStore()
     if (origin === undefined || child === undefined) return undefined
     if (child.session.header.parentSession !== origin.agent.session.id) return undefined
+    const label = identity?.label ?? descriptorLabel(child.session)
     const presenter = new ToolPresenter(this.tools, this.onError, child)
     const parent = this.links.get(origin.agent.session.id)
     if (parent !== undefined) {
       const depth = parent.depth + 1
-      this.links.set(child.session.id, { card: parent.card, depth, presenter })
+      const originKey = entryKey(origin.agent.session.id, origin.callId)
+      this.links.set(child.session.id, {
+        card: parent.card, depth, presenter, provider: info.provider, originKey, label,
+      })
       // The descendant's own tool call is already a running entry; name it.
       parent.card.retitle(
-        entryKey(origin.agent.session.id, origin.callId),
-        `Subagent \`${info.provider}\`${identity?.label === undefined ? '' : `: ${identity.label}`}`,
+        originKey,
+        `Subagent \`${info.provider}\`${label === undefined ? '' : `: ${label}`}`,
       )
       return { card: parent.card, update: parent.card.progress() }
     }
     if (!isRoot(origin.agent)) return undefined
-    const card = new SubagentCard(origin.agent, origin.callId, child.session.id, info.provider, identity?.label)
+    const card = new SubagentCard(origin.agent, origin.callId, child.session.id, info.provider, label, identity?.name)
     const key = cardKey(origin.agent.session.id, origin.callId)
     const previous = this.cards.get(key)
     if (previous !== undefined) this.unlink(previous)
     this.cards.set(key, card)
-    this.links.set(child.session.id, { card, depth: 1, presenter })
+    this.links.set(child.session.id, { card, depth: 1, presenter, provider: info.provider, label })
     return { card, update: card.opening() }
   }
 
   /**
-   * Record a child's settlement on its card.
+   * Record a child's settlement on its card. Settled descendants unlink immediately;
+   * settled direct children finalize and unlink once the parent tool result has arrived.
    * @param info - the seam's end payload.
    * @returns the card and its update, or undefined for an untracked child.
    */
   end(info: SubagentRunEndInfo): SubagentCardUpdate | undefined {
     const link = this.links.get(info.id)
     if (link === undefined) return undefined
-    link.card.finish(link.depth, info.stopReason)
+    link.card.finish(link.depth, info.stopReason, info.lastAssistantMessage)
+    if (link.depth > 1) {
+      this.links.delete(info.id)
+      return { card: link.card, update: link.card.progress() }
+    }
+    if (link.card.hasParentResult) {
+      this.cards.delete(cardKey(link.card.root.session.id, link.card.callId))
+      this.unlink(link.card)
+      return { card: link.card, update: link.card.settleDeferred() }
+    }
     return { card: link.card, update: link.card.progress() }
   }
 
@@ -306,8 +405,7 @@ export class SubagentTracker {
     const card = link.card
     switch (event.type) {
       case 'subagent/catalog':
-        this.catalog(event.data)
-        return undefined
+        return this.catalog(event.data)
       case 'tool/call': {
         const view = link.presenter.call(event.data.callId, event.data.name, event.data.arguments)
         card.append(link.depth, RUNNING, view.title, entryKey(session.id, event.data.callId))
@@ -336,6 +434,33 @@ export class SubagentTracker {
   }
 
   /**
+   * Handle the parent's `tool/result` projection for a delegated call. Fails and
+   * already-finished children settle and unlink immediately; active children remain
+   * linked in progress until their direct `subagent/end`.
+   * @param root - the bridge-owned parent agent.
+   * @param callId - the parent's completed tool call.
+   * @param result - the ACP update produced from the parent's `tool/result`.
+   * @param isError - whether the parent tool call returned an error.
+   * @returns the card update to emit, or undefined when the call started no child.
+   */
+  parentResult(
+    root: Agent,
+    callId: ToolCallId,
+    result: ToolCallSessionUpdate,
+    isError: boolean,
+  ): ToolCallSessionUpdate | undefined {
+    const key = cardKey(root.session.id, callId)
+    const card = this.cards.get(key)
+    if (card === undefined) return undefined
+    if (isError || card.isFinished) {
+      this.cards.delete(key)
+      this.unlink(card)
+      return card.settle(result)
+    }
+    return card.recordParentResult(result)
+  }
+
+  /**
    * Settle the card of a parent tool call and stop routing child events to it.
    * @param root - the bridge-owned parent agent.
    * @param callId - the parent's settled tool call.
@@ -350,13 +475,23 @@ export class SubagentTracker {
     return card
   }
 
+  /** List every currently linked child or descendant session id belonging to a root agent. */
+  activeChildIds(root: Agent): SessionId[] {
+    const ids: SessionId[] = []
+    for (const [id, link] of this.links) {
+      if (link.card.root === root) ids.push(id)
+    }
+    return ids
+  }
+
   /**
-   * Forget everything owned by or linked to a disposed agent.
+   * Forget pending identities and cards owned by a disposed root agent. Child
+   * links remain intact across child agent disposal so the trailing `subagent/end`
+   * lifecycle event can still finalize its card.
    * @param agent - the agent that left the registry.
    */
   dispose(agent: Agent): void {
     this.identities.delete(agent.session.id)
-    this.links.delete(agent.session.id)
     for (const [key, card] of this.cards) {
       if (card.root !== agent) continue
       this.cards.delete(key)
@@ -377,6 +512,14 @@ function cardKey(rootId: SessionId, callId: ToolCallId): string {
 
 function entryKey(sessionId: SessionId, callId: ToolCallId): string {
   return `${sessionId}:${callId}`
+}
+
+function descriptorLabel(session: Session): string | undefined {
+  if (typeof session.snapshotEvents !== 'function') return undefined
+  for (const event of session.snapshotEvents()) {
+    if (event.type === 'subagent/descriptor') return event.data.label
+  }
+  return undefined
 }
 
 function compact(text: string): string {

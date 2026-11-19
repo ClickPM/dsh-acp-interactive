@@ -53,16 +53,20 @@ export function mapMcpServers(servers: readonly McpServer[], cwd: string): McpCl
       if (server.args.some(arg => arg.includes('\0'))) {
         throw new McpConfigError(`${path}.args must not contain NUL bytes`)
       }
-      return {
+      const env = entriesToRecord(server.env, `${path}.env`, false)
+      const config = McpClient.Config({
         transport: 'stdio',
         serverName: server.name,
         command: server.command,
         args: [...server.args],
-        env: entriesToRecord(server.env, `${path}.env`, false),
+        env,
         cwd,
+        closeTimeoutMs: 5_000,
+        expandTemplates: false,
         toolCallTimeoutMs: 60_000,
         failOnStartupError: true,
-      }
+      })
+      return { ...config, env }
     }
 
     if (server.type === 'http') {
@@ -75,14 +79,18 @@ export function mapMcpServers(servers: readonly McpServer[], cwd: string): McpCl
       if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username !== '' || url.password !== '') {
         throw new McpConfigError(`${path}.url must be an HTTP or HTTPS URL without embedded credentials`)
       }
-      return {
+      const headers = entriesToRecord(server.headers, `${path}.headers`, true)
+      const config = McpClient.Config({
         transport: 'streamable-http',
         serverName: server.name,
         url: url.href,
-        headers: entriesToRecord(server.headers, `${path}.headers`, true),
+        headers,
+        closeTimeoutMs: 5_000,
+        expandTemplates: false,
         toolCallTimeoutMs: 60_000,
         failOnStartupError: true,
-      }
+      })
+      return { ...config, headers }
     }
 
     if (server.type === 'sse') throw new McpConfigError(`${path}: SSE transport is not supported`)

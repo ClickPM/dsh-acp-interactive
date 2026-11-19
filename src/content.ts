@@ -37,6 +37,11 @@ function imageMediaType(value: string): ImageMediaType | undefined {
   return IMAGE_MEDIA_TYPES.includes(value as ImageMediaType) ? value as ImageMediaType : undefined
 }
 
+/** Whether a declared MIME list accepts at least one ACP-supported image format. */
+export function supportsImageMediaTypes(mediaTypes: readonly string[] | undefined): boolean {
+  return mediaTypes?.some(type => imageMediaType(type) !== undefined) ?? false
+}
+
 function decodeImage(block: Extract<AcpContentBlock, { type: 'image' }>): SaveImageAttachment {
   const mediaType = imageMediaType(block.mimeType)
   if (mediaType === undefined) {

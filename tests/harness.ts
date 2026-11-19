@@ -23,6 +23,8 @@ import {
   type LlmResolvedModelInfo,
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
+import { resolve } from 'node:path'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
@@ -367,6 +369,22 @@ export async function makeHarness(
   // The testkit mounts the session projection registry the loop and the
   // permission/approval services fold their state through.
   await mountAgentLoopTestDependencies(ctx, { systemPrompt: { personaPrefix: '' } })
+  const directories = new WeakMap<Session, string>()
+  const cwdOf = (session: Session): string => directories.get(session) ?? session.header.cwd ?? process.cwd()
+  ctx.provide('workingDirectory', {
+    defaultDirectory: process.cwd(),
+    get: cwdOf,
+    ensure: (agent: Agent, signal?: AbortSignal) => {
+      signal?.throwIfAborted()
+      return Promise.resolve(cwdOf(agent.session))
+    },
+    set: (agent: Agent, target: string, signal?: AbortSignal) => {
+      signal?.throwIfAborted()
+      const cwd = resolve(cwdOf(agent.session), target)
+      directories.set(agent.session, cwd)
+      return Promise.resolve(cwd)
+    },
+  } as never)
   const persisted = new Map<SessionId, PersistedEntry>()
   await ctx.plugin(HarnessPersistence, persisted)
   await ctx.plugin(HarnessSessionQuery)

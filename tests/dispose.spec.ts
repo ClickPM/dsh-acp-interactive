@@ -56,11 +56,12 @@ describe('interactive ACP connection ownership', () => {
     const order: string[] = []
     let parents: readonly Agent[] = []
     harness.ctx.provide('subagents', {
-      drainContinuableDescendants: (value: readonly Agent[]) => {
+      drainDescendants: (value: readonly Agent[]) => {
         parents = value
         order.push('drained')
         return Promise.resolve()
       },
+      waitForTreeWork: () => Promise.resolve(false),
     } as never)
     const sessionId = await session(harness)
     const agent = harness.ctx.agents.get(SessionId(sessionId))!
@@ -74,11 +75,12 @@ describe('interactive ACP connection ownership', () => {
       const warnings: string[] = []
       failing.ctx.logger.warn = (message: string) => { warnings.push(message) }
       failing.ctx.provide('subagents', {
-        drainContinuableDescendants: () => Promise.reject(new Error('drain failed')),
+        drainDescendants: () => Promise.reject(new Error('drain failed')),
+        waitForTreeWork: () => Promise.resolve(false),
       } as never)
       const failingId = await session(failing)
       await failing.acpFiber.dispose()
-      expect(warnings.some(message => message.includes('continuable subagent teardown failed'))).toBe(true)
+      expect(warnings.some(message => message.includes('subagent teardown failed'))).toBe(true)
       expect(failing.ctx.agents.get(SessionId(failingId))).toBeUndefined()
     } finally {
       await failing.dispose().catch(() => undefined)

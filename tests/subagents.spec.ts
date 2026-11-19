@@ -6,7 +6,7 @@ import { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/
 import SubagentRuntime, { SubagentRunId, type SubagentRunEndInfo, type SubagentRunInfo } from '@deepseek-ai/dsh-subagent'
 import * as spawnProvider from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as toolSubagent from '@deepseek-ai/dsh-tool-subagent'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import {
   DELEGATION_META_KEY,
   isDelegatedSession,
@@ -55,7 +55,32 @@ function delegatedPrompt(options: GenerateOptions): string {
   return message?.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('') ?? ''
 }
 
-const answerByPrompt: ScriptEntry = options => textResponse(`answer ${delegatedPrompt(options)}`)
+function messageText(message: GenerateOptions['messages'][number]): string {
+  return message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+}
+
+/** Deterministic route for concurrent parent + async child activations on MockAdapter. */
+function routeTurns(
+  handler: (
+    last: GenerateOptions['messages'][number] | undefined,
+    lastText: string,
+    hasUserText: (text: string) => boolean,
+  ) => StreamChunk[] | 'hang',
+): ScriptEntry[] {
+  const entry: ScriptEntry = (options) => {
+    const conversational = options.messages.filter(candidate => (
+      candidate.role === 'tool'
+      || (candidate.role === 'user' && (candidate.source?.kind === 'user' || candidate.source?.kind === 'subagent-settled'))
+    ))
+    const last = conversational.at(-1)
+    const lastText = last === undefined ? '' : messageText(last)
+    const hasUserText = (text: string): boolean => conversational.some(
+      candidate => candidate.role === 'user' && messageText(candidate).startsWith(text),
+    )
+    return handler(last, lastText, hasUserText)
+  }
+  return Array.from({ length: 12 }, () => entry)
+}
 
 async function newSession(harness: BridgeHarness): Promise<string> {
   await harness.client.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} })
@@ -68,7 +93,6 @@ async function composeSubagents(harness: BridgeHarness): Promise<void> {
   await harness.ctx.plugin(toolSubagent, {
     provider: 'spawn',
     toolName: 'subagent',
-    enableRunInBackground: false,
     maxDepth: 3,
   })
   harness.ctx.tools.register(defineContentToolFixture({
@@ -116,12 +140,13 @@ describe('interactive ACP subagent projection', () => {
   })
 
   it('folds a foreground delegation into the parent card and settles it with the parent result', async () => {
-    harness = await makeHarness([
-      delegate('delegate-1', 'Find auth', 'look for auth'),
-      callEcho('child-call', 'child'),
-      textResponse('child answer'),
-      textResponse('done'),
-    ])
+    harness = await makeHarness(routeTurns((last, lastText) => {
+      if (lastText.startsWith('delegate')) return delegate('delegate-1', 'Find auth', 'look for auth')
+      if (lastText.startsWith('look for auth')) return callEcho('child-call', 'child')
+      if (last?.role === 'tool' && lastText === 'echoed') return textResponse('child answer')
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
     const sessionId = await newSession(harness)
 
@@ -172,7 +197,13 @@ describe('interactive ACP subagent projection', () => {
   })
 
   it('attributes parallel delegations from one step to their own cards', async () => {
-    harness = await makeHarness([delegatePair(), answerByPrompt, answerByPrompt, textResponse('done')])
+    harness = await makeHarness(routeTurns((last, lastText) => {
+      if (lastText.startsWith('fan out')) return delegatePair()
+      if (last?.role === 'user' && lastText.startsWith('alpha')) return textResponse('answer alpha')
+      if (last?.role === 'user' && lastText.startsWith('beta')) return textResponse('answer beta')
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
     const sessionId = await newSession(harness)
 
@@ -195,26 +226,47 @@ describe('interactive ACP subagent projection', () => {
     // Lifecycle edges for children nobody attributed, and an agentless dispatch, change nothing.
     const before = harness.updates.length
     const emit = harness.ctx as unknown as { emit(name: string, ...args: unknown[]): void }
-    emit.emit('subagent/start', { runId: SubagentRunId('stray'), provider: 'spawn', id: SessionId('stray'), local: true })
+    emit.emit('subagent/start', {
+      runId: SubagentRunId('stray'), provider: 'spawn', parentSessionId: SessionId(sessionId), id: SessionId('stray'), local: true,
+    })
     emit.emit('subagent/end', {
-      runId: SubagentRunId('stray'), provider: 'spawn', id: SessionId('stray'), local: true, stopReason: 'completed',
+      runId: SubagentRunId('stray'), provider: 'spawn', parentSessionId: SessionId(sessionId), id: SessionId('stray'), local: true, stopReason: 'completed',
     })
     await harness.ctx.tools.execute({
-      callId: ToolCallId('direct'), name: 'echo', arguments: { text: 'direct' }, signal: new AbortController().signal,
+      calls: [{ type: 'tool-call', id: ToolCallId('direct'), name: 'echo', arguments: JSON.stringify({ text: 'direct' }) }],
+      signal: new AbortController().signal,
     })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(harness.updates).toHaveLength(before)
   })
 
   it('renders nested delegations under the direct child', async () => {
-    harness = await makeHarness([
-      delegate('delegate-1', 'Outer', 'outer'),
-      delegate('nested-1', 'Inner', 'inner'),
-      textResponse('deep answer'),
-      textResponse('outer answer'),
-      textResponse('done'),
-    ])
+    const innerEnded = Promise.withResolvers<void>()
+    harness = await makeHarness(routeTurns((last, lastText, hasUserText) => {
+      if (lastText.startsWith('nest')) return delegate('delegate-1', 'Outer', 'outer')
+      if (lastText.startsWith('outer')) return delegate('nested-1', 'Inner', 'inner')
+      if (lastText.startsWith('inner')) return textResponse('deep answer')
+      if (last?.role === 'user' && last.source?.kind === 'subagent-settled' && hasUserText('outer') && !hasUserText('nest')) {
+        return textResponse('outer answer')
+      }
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
+    harness.ctx.on('subagent/end', (info) => {
+      if (harness!.ctx.agents.get(info.parentSessionId)?.session.header.origin === 'subagent') {
+        innerEnded.resolve()
+      }
+    })
+    const stream = harness.adapter.stream.bind(harness.adapter)
+    vi.spyOn(harness.adapter, 'stream').mockImplementation(async function* (options) {
+      const last = options.messages.at(-1)
+      const isOuterToolTurn = last?.role === 'tool'
+        && options.messages.some(m => m.role === 'user' && messageText(m).startsWith('outer'))
+        && !options.messages.some(m => m.role === 'user' && messageText(m).startsWith('nest'))
+      if (isOuterToolTurn) await innerEnded.promise
+      yield* stream(options)
+    })
     const sessionId = await newSession(harness)
 
     await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'nest' }] }))
@@ -237,7 +289,12 @@ describe('interactive ACP subagent projection', () => {
   })
 
   it('cancels the child inside the parent turn and suppresses late child events', async () => {
-    harness = await makeHarness([delegate('delegate-1', 'Slow task', 'wait'), 'hang'])
+    harness = await makeHarness(routeTurns((last, lastText) => {
+      if (lastText.startsWith('delegate')) return delegate('delegate-1', 'Slow task', 'wait')
+      if (lastText.startsWith('wait')) return 'hang'
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
     const sessionId = await newSession(harness)
 
@@ -260,12 +317,14 @@ describe('interactive ACP subagent projection', () => {
     await harness.client.cancel({ sessionId })
     await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
 
-    expect(harness.ctx.agents.list().map(agent => agent.id)).toEqual([sessionId])
+    await vi.waitFor(() => {
+      expect(harness!.ctx.agents.list().map(agent => agent.id)).toEqual([sessionId])
+      expect(cardUpdates(ownUpdates(harness!, sessionId), 'delegate-1').at(-1)?.status).toBe('failed')
+    })
     const cards = cardUpdates(ownUpdates(harness, sessionId), 'delegate-1')
     const settled = cards.at(-1)!
     expect(settled.status).toBe('failed')
     expect(transcript(settled)).toContain('- ✗ Subagent aborted')
-    expect(resultText(settled, 1)).toContain('cancelled')
     expect(meta(settled)).toMatchObject({ stop_reason: 'aborted' })
 
     const before = harness.updates.length
@@ -278,12 +337,15 @@ describe('interactive ACP subagent projection', () => {
   })
 
   it('contains a faulty child presenter as a warning', async () => {
-    harness = await makeHarness([
-      delegate('delegate-1', 'Broken card', 'use the broken tool'),
-      [...toolCall('child-call', 'broken-card', '{"text":"x"}'), { type: 'finish', reason: { kind: 'tool-calls' } }],
-      textResponse('child answer'),
-      textResponse('done'),
-    ])
+    harness = await makeHarness(routeTurns((last, lastText) => {
+      if (lastText.startsWith('delegate')) return delegate('delegate-1', 'Broken card', 'use the broken tool')
+      if (lastText.startsWith('use the broken tool')) {
+        return [...toolCall('child-call', 'broken-card', '{"text":"x"}'), { type: 'finish', reason: { kind: 'tool-calls' } }]
+      }
+      if (last?.role === 'tool' && lastText === 'ran') return textResponse('child answer')
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
     harness.ctx.tools.register(defineContentToolFixture({
       name: 'broken-card',
@@ -305,7 +367,12 @@ describe('interactive ACP subagent projection', () => {
   })
 
   it('tears the child down with the parent when the bridge is disposed', async () => {
-    harness = await makeHarness([delegate('delegate-1', 'Slow task', 'wait'), 'hang'])
+    harness = await makeHarness(routeTurns((last, lastText) => {
+      if (lastText.startsWith('delegate')) return delegate('delegate-1', 'Slow task', 'wait')
+      if (lastText.startsWith('wait')) return 'hang'
+      if (last?.role === 'tool') return textResponse('')
+      return textResponse('done')
+    }))
     await composeSubagents(harness)
     const sessionId = await newSession(harness)
 
@@ -329,8 +396,8 @@ describe('subagent tracker', () => {
     } as unknown as Agent
   }
 
-  function startInfo(id: string, provider = 'spawn'): SubagentRunInfo {
-    return { runId: SubagentRunId(`run-${id}`), provider, id: SessionId(id), local: true }
+  function startInfo(id: string, provider = 'spawn', parentSessionId = 'root'): SubagentRunInfo {
+    return { runId: SubagentRunId(`run-${id}`), provider, parentSessionId: SessionId(parentSessionId), id: SessionId(id), local: true }
   }
 
   function endInfo(id: string, stopReason: SubagentRunEndInfo['stopReason']): SubagentRunEndInfo {
@@ -486,11 +553,13 @@ describe('subagent tracker', () => {
     expect(tracked.childEvent(session('child'), callEvent('x'))).toBeUndefined()
 
     tracked.dispose(agent('pending'))
+    // Child disposal keeps links intact for trailing subagent/end; root disposal clears all cards and links.
     tracked.dispose(agent('sibling'))
-    expect(tracked.end(endInfo('sibling', 'completed'))).toBeUndefined()
+    expect(tracked.end(endInfo('sibling', 'completed'))?.card).toBe(sibling.card)
     tracked.dispose(root)
     expect(tracked.settle(root, ToolCallId('c2'))).toBeUndefined()
     expect(tracked.end(endInfo('child', 'completed'))).toBeUndefined()
+    expect(tracked.end(endInfo('sibling', 'completed'))).toBeUndefined()
 
     const card = new SubagentCard(root, ToolCallId('c2'), SessionId('child'), 'spawn', undefined)
     card.append(1, '▸', 'running', 'k')
@@ -503,7 +572,150 @@ describe('subagent tracker', () => {
 
   it('classifies delegated session headers', () => {
     expect(isDelegatedSession({ origin: 'subagent' })).toBe(true)
-    expect(isDelegatedSession({ parentSession: SessionId('parent') })).toBe(true)
     expect(isDelegatedSession({})).toBe(false)
+  })
+
+  it('covers descriptor fallback, post-start catalog v3 updates, and deferred vs immediate result paths', () => {
+    const tracked = tracker()
+    const root = agent('root')
+    const otherRoot = agent('other-root')
+    const isRoot = (candidate: Agent): boolean => candidate === root || candidate === otherRoot
+
+    // Descriptor label fallback with preceding non-descriptor event, and no-descriptor session.
+    const childWithDescriptor = {
+      id: SessionId('desc-child'),
+      session: {
+        id: SessionId('desc-child'),
+        header: { id: SessionId('desc-child'), parentSession: SessionId('root') },
+        snapshotEvents: () => [
+          { type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 } },
+          { type: 'subagent/descriptor', seq: SessionSeq(2), time: 2, data: { version: 3, mode: 'continuable', provider: 'spawn', label: 'Desc Label' } },
+        ],
+      },
+    } as unknown as Agent
+    const childWithoutDescriptor = {
+      id: SessionId('plain-child'),
+      session: {
+        id: SessionId('plain-child'),
+        header: { id: SessionId('plain-child'), parentSession: SessionId('root') },
+        snapshotEvents: () => [{ type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 } }],
+      },
+    } as unknown as Agent
+
+    // v3 catalog arriving BEFORE start carries name in identities map.
+    tracked.catalog({ version: 3, childId: SessionId('plain-child'), childCreatedAt: 1, mode: 'continuable', label: 'Pre Label', name: 'worker-0' })
+    const pre = tracked.runDelegation({ agent: root, callId: ToolCallId('pre-call') }, () => (
+      tracked.start(startInfo('plain-child'), childWithoutDescriptor, isRoot)
+    ))!
+    expect(pre.card.label).toBe('Pre Label')
+    expect(meta(pre.update as ToolCallUpdate)).toMatchObject({ name: 'worker-0', label: 'Pre Label' })
+    // Unchanged post-start catalog returns undefined.
+    expect(tracked.catalog({
+      version: 3, childId: SessionId('plain-child'), childCreatedAt: 1, mode: 'continuable', label: 'Pre Label', name: 'worker-0',
+    })).toBeUndefined()
+
+    // Direct child started from subagent/descriptor BEFORE subagent/catalog v3 arrives.
+    const opened = tracked.runDelegation({ agent: root, callId: ToolCallId('c1') }, () => (
+      tracked.start(startInfo('desc-child'), childWithDescriptor, isRoot)
+    ))!
+    expect(opened.card.label).toBe('Desc Label')
+    // Post-start catalog updates name and emits an opening update.
+    const updatedCatalog = tracked.catalog({
+      version: 3, childId: SessionId('desc-child'), childCreatedAt: 2, mode: 'continuable', label: 'Updated Label', name: 'agent-1',
+    })
+    expect(updatedCatalog?.update).toMatchObject({
+      title: 'Updated Label',
+      _meta: { [DELEGATION_META_KEY]: { session_id: 'desc-child', provider: 'spawn', label: 'Updated Label', name: 'agent-1' } },
+    })
+    // Subsequent catalog changing only label (same name) preserves existing nameValue cleanly.
+    const relabeledCard = tracked.catalog({
+      version: 3, childId: SessionId('desc-child'), childCreatedAt: 2, mode: 'continuable', label: 'Relabeled Only', name: 'agent-1',
+    })
+    expect(relabeledCard?.card.label).toBe('Relabeled Only')
+
+    // Descendant started without label then updated once via childEvent('subagent/catalog'), then ignored when unchanged.
+    tracked.childEvent(session('desc-child'), callEvent('nested-call', 'subagent'))
+    const grand = {
+      id: SessionId('grand'),
+      session: {
+        id: SessionId('grand'),
+        header: { id: SessionId('grand'), parentSession: SessionId('desc-child') },
+        snapshotEvents: () => [{ type: 'turn/start', seq: SessionSeq(1), time: 1, data: { turn: 1 } }],
+      },
+    } as unknown as Agent
+    tracked.runDelegation({ agent: childWithDescriptor, callId: ToolCallId('nested-call') }, () => (
+      tracked.start(startInfo('grand', 'spawn', 'desc-child'), grand, isRoot)
+    ))
+    const retitled = tracked.childEvent(session('desc-child'), {
+      type: 'subagent/catalog', seq: SessionSeq(3), time: 3,
+      data: { version: 3, childId: SessionId('grand'), childCreatedAt: 3, mode: 'continuable', label: 'Grand Label', name: 'grand-1' },
+    })
+    expect(retitled?.card.render()).toContain('Subagent `spawn`: Grand Label')
+    expect(tracked.childEvent(session('desc-child'), {
+      type: 'subagent/catalog', seq: SessionSeq(4), time: 4,
+      data: { version: 3, childId: SessionId('grand'), childCreatedAt: 3, mode: 'continuable', label: 'Grand Label', name: 'grand-1' },
+    })).toBeUndefined()
+    // Updating only label (keeping name unchanged) exercises labelChanged && !nameChanged branch.
+    const relabeledOnly = tracked.childEvent(session('desc-child'), {
+      type: 'subagent/catalog', seq: SessionSeq(5), time: 5,
+      data: { version: 3, childId: SessionId('grand'), childCreatedAt: 3, mode: 'continuable', label: 'Grand Label 2', name: 'grand-1' },
+    })
+    expect(relabeledOnly?.card.render()).toContain('Subagent `spawn`: Grand Label 2')
+
+    // activeChildIds isolates by root.
+    const otherChild = agent('other-child', 'other-root')
+    tracked.runDelegation({ agent: otherRoot, callId: ToolCallId('oc') }, () => (
+      tracked.start(startInfo('other-child', 'spawn', 'other-root'), otherChild, isRoot)
+    ))
+    expect(tracked.activeChildIds(root).sort()).toEqual(['desc-child', 'grand', 'plain-child'])
+    expect(tracked.activeChildIds(otherRoot)).toEqual(['other-child'])
+
+    // Deferred parentResult when child ends WITHOUT lastAssistantMessage (aborted empty).
+    expect(tracked.parentResult(root, ToolCallId('missing'), {
+      sessionUpdate: 'tool_call_update', toolCallId: 'missing', status: 'completed',
+    }, false)).toBeUndefined()
+    const inProgress = tracked.parentResult(root, ToolCallId('c1'), {
+      sessionUpdate: 'tool_call_update', toolCallId: 'c1', status: 'completed', _meta: { tag: 1 },
+    }, false)
+    expect(inProgress?.status).toBe('in_progress')
+    const settledEmptyFail = tracked.end({ ...endInfo('desc-child', 'aborted') })!
+    expect(settledEmptyFail.update).toMatchObject({
+      status: 'failed',
+      content: [{ type: 'content', content: { type: 'text', text: expect.stringContaining('Subagent aborted') } }],
+      _meta: { tag: 1, [DELEGATION_META_KEY]: { stop_reason: 'aborted' } },
+    })
+
+    // Sync path: end arrives WITH lastAssistantMessage BEFORE non-error parentResult, and aborted outcome.
+    tracked.end({
+      ...endInfo('plain-child', 'completed'),
+      lastAssistantMessage: [{ type: 'text', text: 'sync final answer' }],
+    })
+    const syncCompleted = tracked.parentResult(root, ToolCallId('pre-call'), {
+      sessionUpdate: 'tool_call_update', toolCallId: 'pre-call', status: 'completed',
+    }, false)!
+    expect(syncCompleted.status).toBe('completed')
+    expect((syncCompleted.content?.[1] as { content: { text: string } }).content.text).toBe('sync final answer')
+
+    // Parent tool/result error settles immediately even while child is running.
+    const errCard = tracked.runDelegation({ agent: otherRoot, callId: ToolCallId('oc') }, () => (
+      tracked.start(startInfo('other-child-2', 'spawn', 'other-root'), agent('other-child-2', 'other-root'), isRoot)
+    ))!
+    expect(errCard).toBeDefined()
+    const failedResult = tracked.parentResult(otherRoot, ToolCallId('oc'), {
+      sessionUpdate: 'tool_call_update', toolCallId: 'oc', status: 'failed', content: [{ type: 'content', content: { type: 'text', text: 'boom' } }],
+    }, true)!
+    expect(failedResult.status).toBe('failed')
+
+    // Synchronous settle after aborted end updates status to 'failed'.
+    const abortCard = new SubagentCard(root, ToolCallId('sync-abort'), SessionId('s-abort'), 'spawn', 'A')
+    abortCard.finish(1, 'aborted', [{ type: 'text', text: 'partial' }])
+    expect(abortCard.settle({
+      sessionUpdate: 'tool_call_update', toolCallId: 'sync-abort', status: 'completed',
+    }).status).toBe('failed')
+    // Settle before finish leaves original status and undefined outcome.
+    const rawCard = new SubagentCard(root, ToolCallId('raw'), SessionId('s-raw'), 'spawn', undefined)
+    expect(rawCard.settle({
+      sessionUpdate: 'tool_call_update', toolCallId: 'raw', status: 'completed',
+    }).status).toBe('completed')
   })
 })

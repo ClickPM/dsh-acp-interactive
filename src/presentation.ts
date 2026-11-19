@@ -270,7 +270,8 @@ function projectDiffs(diffs: readonly { path: string; oldText: string | null; ne
   return diffs.map(diff => ({ type: 'diff', ...diff }))
 }
 
-function projectContent(blocks: readonly ContentBlock[]): AcpToolCallContent[] {
+/** Project text content blocks onto generic ACP tool-card content items. */
+export function projectContent(blocks: readonly ContentBlock[]): AcpToolCallContent[] {
   return blocks.flatMap((block): AcpToolCallContent[] => block.type === 'text'
     ? [{ type: 'content', content: { type: 'text', text: block.text } }]
     : [])

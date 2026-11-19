@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionConfigOption } from '@agentclientprotocol/sdk'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 /** ACP config id for the provider/model selector. */
 export const MODEL_CONFIG_ID = 'model'
@@ -94,7 +95,7 @@ export interface PermissionPresetDirectory {
    * permission projection from the session itself, so it takes the Session
    * rather than a detached event log.
    */
-  current(session: Agent['session']): string
+  current(session: Session): string
   /** Resolve presentation metadata for one preset. */
   optionOf(name: string): { value: string; name: string; description?: string }
 }
@@ -143,13 +144,13 @@ export function decodeModelValue(value: string): { provider: string; model: stri
  * failures remove only their provider group; the selected route remains a
  * routing fact even when an advisory catalog no longer advertises it.
  * @param ctx - context carrying the LLM registry and optional permission presets.
- * @param agent - exact session whose permission state is projected.
+ * @param target - live agent or prepared session whose permission state is projected.
  * @param selection - model route selected for the next assembled step.
  * @returns every currently available session configuration option.
  */
 export async function sessionConfigOptions(
   ctx: Context,
-  agent: Agent,
+  target: Agent | Session,
   selection: ModelSelection | undefined,
 ): Promise<SessionConfigOption[]> {
   const groups = (await Promise.all(ctx.llm.listProviders().map(async (provider) => {
@@ -212,7 +213,8 @@ export async function sessionConfigOptions(
 
   const permissions = permissionDirectory(ctx)
   if (permissions !== undefined && permissions.names.length > 0) {
-    const currentValue = permissions.current(agent.session)
+    const session = 'session' in target ? target.session : target
+    const currentValue = permissions.current(session)
     const presetNames = [
       ...permissions.names,
       ...permissions.names.includes(currentValue) ? [] : [currentValue],

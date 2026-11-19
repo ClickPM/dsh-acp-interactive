@@ -2,6 +2,24 @@
 
 [dsh-acp-interactive](README.zh.md) 的版本说明。English: [CHANGELOG.md](CHANGELOG.md).
 
+## 1.5.0
+
+`1.5.0` 将组合的 DeepSeek Harness 基线从 `0.2.0-rc.2` 升级至 `0.2.2-rc.5`，并解决与 T3 Code（`driver: "acpRegistry"`）集成时发现的四项兼容问题。公布的 ACP 能力面仍基于 `@agentclientprotocol/sdk` `1.4.0`。
+
+上游 `0.2.2-rc.5` 基线升级要点：
+- **组合与配置对齐**：移除上游已删除的 `@deepseek-ai/dsh-invariants`、`*/invariant` 配置行与 `src/invariant.ts`；新增 `@deepseek-ai/dsh-working-directory`（同步从 `system-prompt` 移除已废弃的 `{{cwd}}` 变量）与 `@deepseek-ai/dsh-tool-executor-native`；将 `session-title-first-prompt-llm` 的 `maxOutputTokens` 提高到 `4096`（`timeoutMs: 60000`）；移除 `llm-deepseek` 的静态 `models:` 覆盖以跟随上游 `DEFAULT_MODELS`（`deepseek-flash` `[text, image]`、`deepseek-v4-pro` `[text]`）及 `/models` 实时目录；同步更新 `config/editor-profile.json`（`61` 个组合插件、`7` 项已评审能力）与 `config/upstream-baseline.json`（`dsh-v0.2.2-rc.5`，`codec.spec.ts` 保持一致并通过）。
+- **按 step 生效的模型选择（`agent.model`）**：使用 `installModelSelection(agentCtx)` 与 `agent.model.current()` / `agent.model.select()` 替代被移除的 `ModelSelectionRef`，模型与 reasoning 切换从下一个 model step 起生效。
+- **受管 subagent activation 与树静止**：以 `subagents.waitForTreeWork` 和 `subagents.drainDescendants` 取代 `drainContinuableDescendants`（用户 `session/cancel` 时发送非破坏性 `subagents.interrupt`）；更新 `agent/error`、`agent/status` 与 `turn/start` 状态复位处理；从 `tool-subagent` 移除已废弃的 `enableRunInBackground` 与 `toolFilter`；更新 `SubagentTracker` / `SubagentCard`，在 `subagent/end` 之前保持父卡片为 `in_progress` 并持续折叠子事件（支持 `subagent/descriptor` 回退与 start 后的 `subagent/catalog` v3 更新）；将 `isDelegatedSession` 收窄为 `header.origin === 'subagent'`，并配合 `dsh-user-questions` 的 `DELEGATED_CALLER` 校验。
+- **MCP 配置规范化**：在 `src/mcp.ts` 中使用 `McpClient.Config` 包装 stdio 与 Streamable HTTP 配置（默认 `closeTimeoutMs: 5000`、`expandTemplates: false`、`toolCallTimeoutMs: 60000`、`failOnStartupError: true`），同时保留零原型 `env` 与 `headers` 字典。
+
+T3 Code 兼容性修复：
+- **v2/v1 混合 `initialize` 协商**：接受 `protocolVersion >= 1` 与 v2 的 `info` / `capabilities` 字段回退（`clientCapabilities ?? capabilities`、`clientInfo?.name ?? info?.name`），避免 `.strict()` 拒绝，并统一返回 `protocolVersion: 1`。
+- **含空格路径 stdio MCP bridge 支持**：通过 `shell: false` 直接启动含空格可执行路径、完整保留显式 `env`（如 `T3_ACP_MCP_ENDPOINT` 与 `T3_ACP_MCP_AUTHORIZATION`），并兼容 MCP SDK `2.2.0` 的 `server/discover -> -32601` 自动回退至 `initialize`。
+- **零磁盘残留临时探针会话**：对 `t3-code-provider-test` / `t3-code-provider-probe`（且 `mcpServers: []`）改用 `ctx.sessions.prepare` 而非 `agents.create()`，照常提供 `configOptions`、`modes` 与 `available_commands_update`，在探针退出后于 `$DSH_HOME/acp-sessions` 下不留任何文件；仅当实际调用 `prompt`、`setSessionConfigOption` 或 `setSessionMode` 时才惰性创建 `Agent`。
+- **严格光栅图片准入校验**：`imagePromptEnabled` 要求挂载支持光栅图片 MIME 类型（`image/png`、`image/jpeg`、`image/webp`、`image/gif`）的 attachment store，并在持久化图片字节之前对纯文字模型返回 `-32602`。
+
+详见 [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](docs/agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md)。
+
 ## 1.4.1
 
 `1.4.1` 将组合的 DeepSeek Harness 基线从 `0.2.0-rc.1` 升级至 `0.2.0-rc.2`，并修正 DeepSeek 官方模型目录。公布的 ACP 能力面仍基于 `@agentclientprotocol/sdk` `1.4.0`，运行时源码零改动：`rc.2` 是同一产品线的补丁级预发布，发布仅比 `rc.1` 晚约 21 小时。

@@ -5,21 +5,7 @@
   config:
     thinking: enabled
     reasoningEffort: max
-    # The official directory is V4.1 Flash and V4 Pro. The retired
-    # `deepseek-v4-flash-vision-exp` beta is deliberately absent: advertising it
-    # offers a route the service no longer serves. Flash is the image-capable
-    # entry, so it declares its modalities.
-    models:
-      - id: deepseek-flash
-        name: DeepSeek V4.1 Flash
-        contextWindow: 1000000
-        maxTokens: 384000
-        inputModalities: [text, image]
-      - id: deepseek-v4-pro
-        name: DeepSeek V4 Pro
-        contextWindow: 1000000
-        maxTokens: 384000
-        inputModalities: [text]
+    apiKeyEnv: DEEPSEEK_API_KEY
 - id: credentials
   name: '@deepseek-ai/dsh-credentials-local'
 - id: llm-pi-ai
@@ -76,14 +62,14 @@
   config:
     includeHarnessIdentity: true
     includeRuntimeContext: true
-    # 0.1.5 split `persona` into an order-0 `personaPrefix` and a `personaSuffix`
-    # rendered after first-party guidance. The whole line stays in the prefix so
-    # the rendered prompt order is unchanged; schemastery silently ignores the
-    # old key, so this rename is a silent regression if it drifts.
-    personaPrefix: |
-      You are a coding assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+    # 0.1.5 split `persona` into `personaPrefix` and `personaSuffix`; 0.2.2-rc.5
+    # removed the `{{cwd}}` prompt variable in favor of `dsh-working-directory`
+    # owning the durable `working-directory:current` runtime-context snapshot.
+    personaPrefix: 'You are a coding assistant powered by the {{model}} model.'
 - id: tools
   name: '@deepseek-ai/dsh-tools'
+- id: tool-executor-native
+  name: '@deepseek-ai/dsh-tool-executor-native'
 - id: skill
   name: '@deepseek-ai/dsh-skill'
 - id: skill-filesystem
@@ -100,16 +86,6 @@
   name: '@deepseek-ai/dsh-goal-round-driver'
 - id: jobs
   name: '@deepseek-ai/dsh-jobs-local'
-- id: invariants
-  name: '@deepseek-ai/dsh-invariants'
-- id: session-invariant
-  name: '@deepseek-ai/dsh-session/invariant'
-- id: agent-invariant
-  name: '@deepseek-ai/dsh-agent/invariant'
-- id: scope-invariant
-  name: '@deepseek-ai/dsh-scope/invariant'
-- id: agent-loop-invariant
-  name: '@deepseek-ai/dsh-agent-loop/invariant'
 # Both agent-instructions and tool-skill prepend session-prefix messages, and
 # registration order is the rendered order, so workspace instructions must stay
 # ahead of the skill catalog.
@@ -131,8 +107,9 @@
     targetWords: 5
     targetCjkCharacters: 10
     maxInputBytes: 4096
-    maxOutputTokens: 32
-    timeoutMs: 5000
+    # A ceiling against runaway output (including reasoning tokens), not a length target.
+    maxOutputTokens: 4096
+    timeoutMs: 60000
 - id: shell-env
   name: '@deepseek-ai/dsh-shell-env'
 - id: tool-bash
@@ -188,6 +165,7 @@
   name: '@deepseek-ai/dsh-session-query-sqlite'
   config:
     path: ':memory:'
+    openAt: never
 - id: session-projection
   name: '@deepseek-ai/dsh-session-projection'
 - id: token-meter
@@ -204,10 +182,15 @@
   name: '@deepseek-ai/dsh-fs-sandbox'
   config:
     cwd: !!js process.cwd()
+- id: working-directory
+  name: '@deepseek-ai/dsh-working-directory'
 - id: fs-observation-policy
   name: '@deepseek-ai/dsh-fs-observation-policy'
 - id: tool-fs
   name: '@deepseek-ai/dsh-tool-fs'
+  config:
+    # Set false to drop the apply_patch tool beside edit.
+    applyPatch: false
 - id: tool-fs-search
   name: '@deepseek-ai/dsh-tool-fs-search'
   config:
@@ -217,43 +200,50 @@
     sampleOverCapGlobResults: false
 - id: web
   name: '@deepseek-ai/dsh-web'
+  config:
+    fetchProvider: http
 - id: web-search-deepseek
   name: '@deepseek-ai/dsh-web-search-deepseek'
+  config:
+    apiKeyEnv: DEEPSEEK_API_KEY
 - id: web-fetch-http
   name: '@deepseek-ai/dsh-web-fetch-http'
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
+  config:
+    fetch: true
+    searchTimeoutMs: 60000
 # In-process delegation. The subagent registry and its spawn/fork backends are
-# process singletons; each delegation tool row names one backend. Children run
-# inside the parent's turn: every call waits in the foreground, so cancelling
-# or closing the editor session settles its children before the parent reports
-# idle, and each child inherits the parent's sandbox mode with approval pinned
-# to `never`, so it can never raise an ACP permission request or a question of
-# its own. `ask_user_question` is removed from every child for the same reason:
-# the bridge answers questions only for its exact root agents. Background jobs
-# and continuable children stay deferred (see config/editor-profile.json).
+# process singletons; each delegation tool row names one backend. Every call
+# starts a managed activation (`delivery: 'parent'`) and returns its child name
+# immediately; the host enforces subagent tree quiescence via `waitForTreeWork`
+# during turns and `drainDescendants` on cancellation, session close, and
+# bridge teardown. Each child inherits the parent's sandbox override with
+# approval pinned to `never` at the delegation boundary, and `dsh-user-questions`
+# rejects delegated callers (`origin === 'subagent'`) with `DELEGATED_CALLER`
+# (while the bridge only answers questions and approvals for its owned root
+# agents). Continuable control tools (`dsh-tool-subagent-control`) and
+# out-of-process backends stay deferred (see config/editor-profile.json).
 - id: subagents
   name: '@deepseek-ai/dsh-subagent'
 - id: subagent-spawn
   name: '@deepseek-ai/dsh-subagent-spawn-in-process'
+  config:
+    providerName: spawn
 - id: subagent-fork
   name: '@deepseek-ai/dsh-subagent-fork-in-process'
+  config:
+    providerName: fork
 - id: tool-subagent
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: spawn
     toolName: subagent
-    enableRunInBackground: false
-    toolFilter:
-      deny: [ask_user_question]
 - id: tool-subagent-fork
   name: '@deepseek-ai/dsh-tool-subagent'
   config:
     provider: fork
     toolName: subagent_fork
-    enableRunInBackground: false
-    toolFilter:
-      deny: [ask_user_question]
 # MCP servers are not static profile plugins. The ACP bridge composes the
 # published dsh-mcp-client dynamically inside each exact agent/session scope
 # from session/new, session/load, or session/resume request configuration.

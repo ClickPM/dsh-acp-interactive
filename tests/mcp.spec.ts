@@ -37,30 +37,42 @@ async function initialize(harness: BridgeHarness) {
 describe('ACP MCP configuration mapping', () => {
   it('maps stdio argv, environment, cwd, and strict startup without a shell', () => {
     const cwd = process.cwd()
-    expect(mapMcpServers([stdio('stable', [{ name: 'TOKEN', value: 'secret' }])], cwd)).toEqual([{
+    const mapped = mapMcpServers([stdio('stable', [{ name: 'TOKEN', value: 'secret' }])], cwd)
+    expect(mapped).toEqual([{
       transport: 'stdio',
       serverName: 'stable',
       command: process.execPath,
       args: [fixture],
       env: { TOKEN: 'secret' },
       cwd,
+      closeTimeoutMs: 5_000,
+      expandTemplates: false,
       toolCallTimeoutMs: 60_000,
       failOnStartupError: true,
+      maxInstructionBytes: 32_768,
+      reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
     }])
+    expect(Object.getPrototypeOf((mapped[0] as { env: unknown }).env)).toBeNull()
   })
 
   it('maps Streamable HTTP headers and rejects credentials or non-HTTP URLs', () => {
-    expect(mapMcpServers([{
+    const httpMapped = mapMcpServers([{
       type: 'http', name: 'web', url: 'https://example.test/mcp',
       headers: [{ name: 'Authorization', value: 'Bearer secret' }],
-    }], process.cwd())).toEqual([{
+    }], process.cwd())
+    expect(httpMapped).toEqual([{
       transport: 'streamable-http',
       serverName: 'web',
       url: 'https://example.test/mcp',
       headers: { Authorization: 'Bearer secret' },
+      closeTimeoutMs: 5_000,
+      expandTemplates: false,
       toolCallTimeoutMs: 60_000,
       failOnStartupError: true,
+      maxInstructionBytes: 32_768,
+      reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30_000, maxAttempts: 10 },
     }])
+    expect(Object.getPrototypeOf((httpMapped[0] as { headers: unknown }).headers)).toBeNull()
     expect(() => mapMcpServers([{
       type: 'http', name: 'web', url: 'https://token@example.test/mcp', headers: [],
     }], process.cwd())).toThrow(/without embedded credentials/)

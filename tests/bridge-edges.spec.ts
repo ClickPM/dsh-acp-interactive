@@ -11,8 +11,9 @@ import {
   type StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import ApprovalService, { type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import {
   errorResponse,
   makeHarness,
@@ -263,14 +264,16 @@ describe('interactive ACP bridge edges', () => {
       .resolves.toEqual({ stopReason: 'cancelled' })
     remove()
 
-    const failed = await makeHarness(['hang'])
+    const failed = await makeHarness([textResponse('partial')])
     try {
       const failedId = await newSession(failed)
       const agent = ownedAgent(failed, failedId)
+      const append = agent.session.append.bind(agent.session)
+      vi.spyOn(agent.session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+        if (type === 'turn/end') throw new Error('interval failed')
+        return (append as (...args: never[]) => unknown)(type as never, ...rest)
+      }) as never)
       const prompt = failed.client.prompt({ sessionId: failedId, prompt: [{ type: 'text', text: 'run' }] })
-      await vi.waitFor(() => { expect(agent.status).toBe('running') })
-      failed.ctx.emit('agent/error', { agent, turn: 999, step: 1, error: new Error('interval failed') })
-      agent.cancel({ kind: 'hook', reason: 'settle synthetic failure' })
       await expect(prompt).rejects.toThrow(/interval failed/)
     } finally {
       await failed.dispose()
@@ -505,5 +508,221 @@ describe('interactive ACP bridge edges', () => {
     await harness.client.cancel({ sessionId })
     await agent.whenIdle()
     expect(agent.status).toBe('idle')
+  })
+
+  it('handles multi-turn waitForTreeWork wakeups cleanly', async () => {
+    harness = await makeHarness([textResponse('first'), textResponse('summary')])
+    const sessionId = await newSession(harness)
+    const agent = ownedAgent(harness, sessionId)
+    let treeWaits = 0
+    harness.ctx.provide('subagents', {
+      drainDescendants: vi.fn().mockResolvedValue(undefined),
+      waitForTreeWork: () => {
+        treeWaits += 1
+        if (treeWaits === 1) {
+          agent.followup(createUserMessage({ content: [{ type: 'text', text: 'wake' }], source: { kind: 'user' } }))
+          return Promise.resolve(true)
+        }
+        return Promise.resolve(false)
+      },
+    } as never)
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'start' }] }))
+      .resolves.toEqual({ stopReason: 'end_turn' })
+    expect(treeWaits).toBe(2)
+  })
+
+  it('re-checks quiescence when new root work starts while outputTail is draining', { timeout: 5000 }, async () => {
+    const attachment = {
+      attachmentId: AttachmentId('slow-img'),
+      mediaType: 'image/png' as const,
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    harness = await makeHarness([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('img-call'), name: 'emit_image', argumentsDelta: '{}' },
+        {
+          type: 'block-end',
+          index: 0,
+          block: { type: 'tool-call', id: ToolCallId('img-call'), name: 'emit_image', arguments: '{}' },
+        },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+      textResponse('turn-one-done'),
+      textResponse('late-followup'),
+    ])
+    const readingImage = Promise.withResolvers<void>()
+    const releaseImage = Promise.withResolvers<{ ref: typeof attachment; data: Uint8Array }>()
+    harness.ctx.provide('attachments', {
+      readImage: () => {
+        readingImage.resolve()
+        return releaseImage.promise
+      },
+    } as never)
+    const tailSessionId = await newSession(harness)
+    const tailAgent = ownedAgent(harness, tailSessionId)
+    harness.ctx.tools.register(defineContentToolFixture({
+      name: 'emit_image',
+      description: 'Emit an assistant image event',
+      parameters: {},
+      execute: () => {
+        tailAgent.session.append(
+          'assistant/message',
+          {
+            turn: 1,
+            step: 1,
+            message: createAssistantMessage({
+              content: [{ type: 'image', attachment }],
+              source: { provider: 'mock', model: 'mock' },
+            }),
+            stream: [],
+          },
+          { surfaceOp: 'append' },
+        )
+        return Promise.resolve([{ type: 'text', text: 'queued-image' }])
+      },
+    }))
+    const tailPrompt = harness.client.prompt({ sessionId: tailSessionId, prompt: [{ type: 'text', text: 'go' }] })
+    await readingImage.promise
+    await vi.waitFor(() => {
+      expect(tailAgent.status).toBe('idle')
+      expect(tailAgent.session.snapshotEvents().some(event => event.type === 'turn/end')).toBe(true)
+    })
+    const seqAfterOne = tailAgent.session.seq
+    tailAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'late' }], source: { kind: 'user' } }))
+    await vi.waitFor(() => { expect(tailAgent.session.seq).toBeGreaterThan(seqAfterOne) })
+    releaseImage.resolve({ ref: attachment, data: new Uint8Array([1]) })
+    await expect(tailPrompt).resolves.toEqual({ stopReason: 'end_turn' })
+  })
+
+  it('handles non-idle status while idle-cancel is active and ignores duplicate cancels', { timeout: 5000 }, async () => {
+    const attachment = {
+      attachmentId: AttachmentId('cancel-img'),
+      mediaType: 'image/png' as const,
+      bytes: 1,
+      width: 1,
+      height: 1,
+    }
+    harness = await makeHarness([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('img-call'), name: 'emit_image', argumentsDelta: '{}' },
+        {
+          type: 'block-end',
+          index: 0,
+          block: { type: 'tool-call', id: ToolCallId('img-call'), name: 'emit_image', arguments: '{}' },
+        },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+      textResponse('first'),
+    ])
+    const readingImage = Promise.withResolvers<void>()
+    const releaseImage = Promise.withResolvers<{ ref: typeof attachment; data: Uint8Array }>()
+    harness.ctx.provide('attachments', {
+      readImage: () => {
+        readingImage.resolve()
+        return releaseImage.promise
+      },
+    } as never)
+    const slowId = await newSession(harness)
+    const slowAgent = ownedAgent(harness, slowId)
+    harness.ctx.tools.register(defineContentToolFixture({
+      name: 'emit_image',
+      description: 'Emit an assistant image event',
+      parameters: {},
+      execute: () => {
+        slowAgent.session.append(
+          'assistant/message',
+          {
+            turn: 1,
+            step: 1,
+            message: createAssistantMessage({
+              content: [{ type: 'image', attachment }],
+              source: { provider: 'mock', model: 'mock' },
+            }),
+            stream: [],
+          },
+          { surfaceOp: 'append' },
+        )
+        return Promise.resolve([{ type: 'text', text: 'queued-image' }])
+      },
+    }))
+    let waited = false
+    const releaseWait = Promise.withResolvers<boolean>()
+    harness.ctx.provide('subagents', {
+      drainDescendants: vi.fn().mockResolvedValue(undefined),
+      waitForTreeWork: () => {
+        if (!waited) {
+          waited = true
+          return releaseWait.promise
+        }
+        return Promise.resolve(false)
+      },
+    } as never)
+    const cancelSpy = vi.spyOn(slowAgent, 'cancel')
+    const prompt = harness.client.prompt({ sessionId: slowId, prompt: [{ type: 'text', text: 'go' }] })
+    await readingImage.promise
+    await vi.waitFor(() => { expect(waited).toBe(true) })
+    await harness.client.cancel({ sessionId: slowId })
+    await vi.waitFor(() => { expect(cancelSpy).toHaveBeenCalledTimes(1) })
+    harness.ctx.emit('agent/status', { agent: slowAgent, status: 'running' })
+    await harness.client.cancel({ sessionId: slowId })
+    await vi.waitFor(() => { expect(cancelSpy).toHaveBeenCalledTimes(2) })
+    releaseImage.resolve({ ref: attachment, data: new Uint8Array([1]) })
+    releaseWait.resolve(false)
+    await expect(prompt).resolves.toEqual({ stopReason: 'cancelled' })
+  })
+
+  it('ignores non-idle status during running cancel, logs presenter failures, and ignores pre-start catalog events', async () => {
+    harness = await makeHarness([
+      [
+        { type: 'block-start', index: 0, blockType: 'tool-call' },
+        { type: 'tool-call-delta', index: 0, id: ToolCallId('bad-pres'), name: 'broken_presenter', argumentsDelta: '{}' },
+        {
+          type: 'block-end',
+          index: 0,
+          block: { type: 'tool-call', id: ToolCallId('bad-pres'), name: 'broken_presenter', arguments: '{}' },
+        },
+        { type: 'finish', reason: { kind: 'tool-calls' } },
+      ],
+      textResponse('ok'),
+      'hang',
+    ])
+    const sessionId = await newSession(harness)
+    const agent = ownedAgent(harness, sessionId)
+    const tool = defineContentToolFixture({
+      name: 'broken_presenter',
+      description: 'Broken presenter',
+      parameters: {},
+      presentCall: () => { throw new Error('presenter crash') },
+      execute: () => Promise.resolve([{ type: 'text', text: 'ran' }]),
+    })
+    harness.ctx.tools.register(tool)
+    await expect(harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'run' }] }))
+      .resolves.toEqual({ stopReason: 'end_turn' })
+
+    // Pre-start subagent/catalog event with no active link is ignored gracefully.
+    agent.session.append('subagent/catalog', {
+      version: 3,
+      childId: SessionId('unstarted-child'),
+      childCreatedAt: 1,
+      mode: 'continuable',
+      label: 'Early Label',
+      name: 'early-child',
+    })
+
+    // Running cancel with intermediate non-idle status stays pending until idle.
+    const ctx = harness.ctx
+    const origCancel = agent.cancel.bind(agent)
+    vi.spyOn(agent, 'cancel').mockImplementation((reason) => {
+      ctx.emit('agent/status', { agent, status: 'running' })
+      return origCancel(reason)
+    })
+    const hangPrompt = harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'hang' }] })
+    await vi.waitFor(() => { expect(agent.status).toBe('running') })
+    await harness.client.cancel({ sessionId })
+    await expect(hangPrompt).resolves.toEqual({ stopReason: 'cancelled' })
   })
 })

@@ -12,16 +12,16 @@
 
 运行不需要 Zed 为 DeepSeek 或 dsh 增加专用内置支持。只要当前 Zed 版本支持在 `agent_servers` 中启动自定义 ACP agent，就可以把 dsh 的启动命令配置进去。Zed 官方支持会影响非标准 `_meta` 扩展和新 ACP 功能的兼容速度，但不是第一阶段的前置条件。
 
-DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent 和事件模型；实际模型由外围 Cordis 组合注册的 provider 选择。组合 `dsh-settings-file`、`dsh-credentials-local` 和 `dsh-llm-pi-ai` 后，ACP server 可以读取当前用户 dsh home 中与 Pi Agent 桌面版相同的 provider profile 和凭据引用，同时保留各进程与 session 的隔离。
+DeepSeek 官方同样不需要修改 API。适配器连接的是 dsh 的 agent 和事件模型；实际模型由外围 Cordis 组合注册的 provider 选择。通过 `$DSH_HOME/cordis.patch.yml`（并在缺失或为空时向后兼容映射旧版 `settings.yaml`）配合 `@deepseek-ai/dsh-credentials-local` 与 `@deepseek-ai/dsh-llm-pi-ai`，ACP server 可以读取当前用户 dsh home 中与 Pi Agent 桌面版相同的 provider profile 和凭据引用，同时保留各进程与 session 的隔离。
 
 ## 包边界
 
 - `@deepseek-ai/dsh-acp` 保持 automation-only，继续服务程序化 ACP 客户端和进程外 subagent。
 - `dsh-acp-interactive` 是面向编辑器和人的独立 UI transport，不被 automation ACP 的最小协议面约束。
-- 本仓库发布 `dsh-acp-interactive` launcher 与 `config/cordis.yml` 完整组合；Zed 直接启动安装后的命令，不依赖 DeepSeek Harness 源码 checkout。
-- ACP 只投影 dsh 已经拥有的状态，不让 Zed 代替 dsh 执行工具或扩大文件访问范围。
+- 本仓库发布 `dsh-acp-interactive` launcher 与 `config/cordis.yml` 完整组合；Zed 与 T3 Code（`driver: "acpRegistry"`）直接启动安装后的命令，不依赖 DeepSeek Harness 源码 checkout。
+- ACP 只投影 dsh 已经拥有的状态，不让编辑器代替 dsh 执行工具或扩大文件访问范围。
 
-独立 launcher 使用经过评审的 editor profile，不自动复制官方完整 profile。`config/editor-profile.json` 固化准入规则、选入能力、暂缓能力和官方参考快照；对账检查只报告候选包、人类命令、必要 provider 与关键 consumer 的变化，必须经显式评审后才修改 `config/cordis.yml`。当前选入本地 filesystem search 及其 cooperative timeout policy、web，以及进程内 subagent；LSP、持久终端、后台／continuable subagent 与 workflow 暂缓。相关决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md) 与 [In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md)。
+独立 launcher 使用经过评审的 editor profile，不自动复制官方完整 profile。`config/editor-profile.json` 固化准入规则、选入能力、暂缓能力和官方参考快照；对账检查只报告候选包、人类命令、必要 provider 与关键 consumer 的变化，必须经显式评审后才修改 `config/cordis.yml`。当前基线（`0.2.2-rc.5` / `1.5.0`）选入 `61` 个已发布的 bare 插件与 `7` 项已评审能力——涵盖本地 filesystem search 及其 cooperative timeout policy、web、原生工具执行器（`dsh-tool-executor-native`）、会话工作目录（`dsh-working-directory`），以及进程内 subagent；LSP、持久终端、continuable 控制工具与进程外 subagent backend、workflow、`web-deepseek-api`、`agent-team`、`tool-working-directory`、`tool-executor-ptc`、spill/pruning 策略及辅助上下文／Deliverable 工具继续暂缓。相关决定见 [Editor Profile Agent Note](agent-notes/2026-08-26-editor-profile.md)、[In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md) 与 [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md)。
 
 自包含启动器的长期约束记录在 [Agent Note](agent-notes/2026-08-26-self-contained-launcher.md)。
 
@@ -67,7 +67,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - `session/list` 从 `ctx.sessionQuery` 的 live 优先语料库返回按创建时间倒序排列的会话，支持精确 cwd 过滤与日志标题；缺少绝对 cwd 的会话不进入 ACP 结果；
 - `session/load` 先校验持久会话及其 cwd，再通过 `ctx.agents.resume()` 恢复 agent，并重放已组装的用户／assistant 消息、reasoning、工具卡片、最后的 plan、标题、用量和命令目录；
 - `session/resume` 恢复相同的 dsh 上下文，但不重放历史，只发送当前命令目录；
-- `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和 continuable 后代完全停稳，通过标准 session flush durability barrier，再释放精确归属的 `AgentHandle`；checkpoint 失败仍完成在线资源释放并明确失败；
+- `session/close` 取消正在执行的命令或模型轮次，等待 agent、ACP 输出队列和活跃 subagent 后代完全停稳（`drainDescendants`），通过标准 session flush durability barrier，再释放精确归属的 `AgentHandle`；checkpoint 失败仍完成在线资源释放并明确失败；
 - 恢复历史包含 ACP 无法无损表示的丰富内容时明确失败，不会静默丢弃内容；
 - 示例组合加入 JSONL persistence、checkpoint policy 和每进程内存 SQLite session query，并由真实 Loader 快照覆盖 list/load；并发编辑器 server 只共享 JSONL 真源，不共享单 owner 的派生索引。
 
@@ -78,7 +78,7 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 第三阶段交付 ACP session config options 形式的模型与权限控制：
 
 - `session/new`、`session/load` 和 `session/resume` 返回完整 `configOptions`，模型按 provider 分组，权限来自 `ctx.permissionPresets` 的部署配置；
-- `session/set_config_option` 的模型值编码完整 provider/model route，只接受当前目录公布的值，并通过 agent-scoped model selection 在下一次 prompt assembly 生效；
+- `session/set_config_option` 的模型值编码完整 provider/model route，只接受当前目录公布的值，并通过 `installModelSelection(agentCtx)` 与 `agent.model.current()` / `agent.model.select()` 在下一个进入 prompt assembly 的 model step 生效；
 - 恢复会话以最后一条 `request/header` 的 route 作为当前模型；目录不再公布该 route 时仍显示一个 current-only 选项，不会把历史选择改写成默认值；
 - 权限 selector 复用 `/permission` 的唯一在线写路径，把 preset、sandbox mode 和 approval policy 一起持久化；运行中的 session 也接受切换，事件立即落账，对后续受限调用与审批请求生效；
 - LLM adapter topology 变化后发送完整 `config_option_update`，直接执行 `/permission` 后也刷新 selector；
@@ -115,14 +115,22 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 - 初始连接和工具发现采用 strict startup，任一 server 失败会销毁整个私有 host 并回滚先前 server。Load/resume 不持久化、不继承历史进程或认证配置，只使用当前请求；
 - 取消、session close、连接 teardown 与创建中断等待工具调用、transport、重连 timer、工具注册和 stdio 子进程静止。MCP 工具仍通过 Harness registry 的展示函数进入通用 ACP tool card 投影。
 
-## 第七阶段：进程内 subagent（1.3.0）
+## 第七阶段：进程内 subagent（1.3.0，并于 1.5.0 对齐 0.2.2-rc.5）
 
-- 组合已发布的 `dsh-subagent` 注册表、`spawn`／`fork` 进程内 backend 与两条 `dsh-tool-subagent` 行（`subagent`、`subagent_fork`）。委托语义完全由 Harness 拥有：子 agent 是同一注册表上的普通 Agent，拥有自己的 Session、`origin: subagent` 与 `parentSession` 血统，父 agent 只以工具结果收到子 agent 的最终输出；
-- 每次委托都在父 turn 内前台等待（`enableRunInBackground: false`）。`session/cancel`、`session/close` 与连接拆卸沿父 agent 的取消信号先停掉子 agent 再到达静止，父 loop 的调度器在 turn 结算前等待每个进行中的工具调用，因此 ACP 层不需要第二套生命周期；并行委托保留，因为工具本身声明并发安全；
-- 子 agent 继承父 session 的 sandbox 覆盖，approval policy 固定为 `never`，并通过工具行的 `toolFilter` 移除 `ask_user_question`，因此子 agent 不会向编辑器发起 permission request 或提问；bridge 的审批与提问 listener 本来也只回答精确归属的根 agent，升级路径仍归父 agent；
-- ACP 层只做归属与投影。seam 不携带父工具调用 id，按时间或 label 归属会让并行委托串卡，因此每个 `tools/execute` 分发都在自己的 delegation origin（Node `AsyncLocalStorage`）中运行，`subagent/start` 在同一异步链上发布，从而精确归属到各自的 `tool/call`；父 session 的持久 `subagent/catalog` 事件提供 label；子 session 及其后代的 `tool/call`、`tool/result`、`assistant/message` 与 `subagent/end` 折叠为父卡片内有界的 transcript，并以替换 content 的 `tool_call_update` 整体重发（Zed 按替换处理卡片 content）；父 agent 自己的 `tool/result` 经通用工具投影结算卡片并把 transcript 保留在结果之前，结算后卡片解除链接，迟到的子事件被丢弃；不投影子 agent 的 reasoning 与实时增量，只以已落账的 `assistant/message` 为来源；
-- 卡片 `_meta.dsh_subagent` 记录子 session id、provider、label 与最终 stop reason；不发送 Zed 私有的 `subagent_session_info`，因为 Zed 没有为外部 agent 消费该键的路径，而未来的消费者可能试图通过本连接打开子会话；`session/list` 排除 `origin: subagent` 或带 `parentSession` 的会话，`session/load`／`session/resume` 明确拒绝它们，与官方 `dsh-acp` 一致；
-- 后台 job、continuable child、`send_message`／`interrupt_agent`／`list_agents` 与进程外 ACP／Codex／Claude Code backend 暂缓：它们的生命周期越过父 turn，稳定 ACP v1 尚无对应表达（上游 subagents RFD agentclientprotocol/agent-client-protocol#1992 仍未合并，`claude-code-acp` 的嵌套 transcript 也依赖它）。
+- 组合已发布的 `dsh-subagent` 注册表、`spawn`／`fork` 进程内 backend 与两条 `dsh-tool-subagent` 行（`subagent`、`subagent_fork`）。委托语义完全由 Harness 拥有：子 agent 是同一注册表上的普通 Agent，拥有自己的 Session、`origin: 'subagent'` 与 `parentSession` 血统，父 agent 通过受管 activation 投递收到子 agent 的最终输出；
+- 每次委托启动一条受管 activation（`delivery: 'parent'`）并立即返回 `{ kind: 'activation', name }`；在 `0.2.2-rc.5` 中，`enableRunInBackground` 已从 `dsh-tool-subagent` 移除。Host 通过 `settleAfterQuiescence` 循环等待 `agent.whenIdle()` 与 `subagents.waitForTreeWork(agent)` 直到父 agent 空闲且 `session.seq` 不再变化；用户 `session/cancel` 通过 `subagents.interrupt` 中断子树，而 `session/close` 与连接拆卸调用 `drainDescendants`；
+- 子 agent 继承父 session 的 sandbox 覆盖，approval policy 固定为 `never`；`toolFilter` 与 `persona` 已在 `0.2.2-rc.5` 移除并改为在 `dsh-user-questions` 中对 `origin === 'subagent'` 的存活子 agent 强制抛出 `DELEGATED_CALLER`；bridge 的 `approval/request` 与 `user-questions/request` 监听器也只回答精确归属的根 agent，升级路径仍归父 agent；
+- ACP 层只做归属与投影。seam 不携带父工具调用 id，因此每个 `tools/execute` 分发都在自己的 delegation origin（Node `AsyncLocalStorage`）中运行，`subagent/start` 在同一异步链上发布，从而精确归属到各自的 `tool/call`；初始 label 优先读取缓存身份或子 session 的 `subagent/descriptor`，start 之后到达的 `subagent/catalog`（v3，含 `name` 与 `label`）会就地更新已链接卡片与后代条目；子 session 及其后代的 `tool/call`、`tool/result`、`assistant/message` 与 `subagent/end` 折叠为父卡片内有界的 transcript，并以替换 content 的 `tool_call_update` 整体重发；父 agent 收到非错误的 `tool/result`（`"started subagent <name>"`）时若直属子 agent 仍在运行，卡片保持 `in_progress` 并继续折叠实时事件，直到 `subagent/end` 到来才携带 `[transcriptBlock, ...finalOutput]` 与 `stop_reason` 结算并解除链接；子 agent 销毁事件（`agent/disposed`）保留链接直到尾部 `subagent/end` 完成结算；不投影子 agent 的 reasoning 与实时增量，只以已落账的 `assistant/message` 为来源；
+- 卡片 `_meta.dsh_subagent` 记录子 session id、provider、label、name 与最终 stop reason；不发送 Zed 私有的 `subagent_session_info`；`session/list` 与 `session/load`／`session/resume` 仅依据 `origin === 'subagent'` 过滤并拒绝子会话（移除 `parentSession` 检查），与官方 `dsh-acp` 一致；
+- continuable 控制工具（`dsh-tool-subagent-control` 中的 `send_message`／`interrupt_agent`／`list_agents`）、`dsh-agent-team` 与进程外 ACP／Codex／Claude Code backend 暂缓：它们的生命周期越过父 turn，稳定 ACP v1 尚无对应表达（上游 subagents RFD agentclientprotocol/agent-client-protocol#1992 仍未合并，`claude-code-acp` 的嵌套 transcript 也依赖它）。
+
+## 第八阶段：0.2.2-rc.5 运行时升级与 T3 Code 兼容（1.5.0）
+
+- 组合与基线升级至 `0.2.2-rc.5`：移除上游已删除的 `@deepseek-ai/dsh-invariants`、`*/invariant` 行与 `src/invariant.ts`；加入 `@deepseek-ai/dsh-working-directory`（取代已废弃的 `{{cwd}}` 系统提示变量）与 `@deepseek-ai/dsh-tool-executor-native`；将 `session-title-first-prompt-llm` 的 `maxOutputTokens` 提升至 `4096`（`timeoutMs: 60000`）；移除 `llm-deepseek` 的静态 `models:` 覆盖以遵循上游 `DEFAULT_MODELS` 与 `/models` 目录；在 `src/mcp.ts` 中使用 `McpClient.Config`（默认 `closeTimeoutMs: 5000`、`expandTemplates: false`、`toolCallTimeoutMs: 60000`）包装配置；
+- **T3 Code v2/v1 混合 `initialize` 协商**：`parseHybridInitializeRequest` 校验非数组对象与 `[0, 65535]` 整数 `protocolVersion`（非法参数返回 `-32602`），接受 `protocolVersion >= 1` 与 v2 的 `info`/`capabilities` 回退字段（`clientCapabilities ?? capabilities`、`clientInfo?.name ?? info?.name`），并统一返回 `protocolVersion: 1`；
+- **含空格路径 stdio MCP bridge**：通过 `shell: false` 直接启动含空格可执行路径，将零原型显式 `env`（如 `T3_ACP_MCP_ENDPOINT`、`T3_ACP_MCP_AUTHORIZATION`）叠加到去敏后的父环境，并兼容 `server/discover -> -32601` 自动回退至 `initialize`；
+- **零磁盘残留探针会话**：识别 `clientName === 't3-code-provider-test' || clientName === 't3-code-provider-probe'` 且 `mcpServers: []` 的探针会话，通过 `ctx.sessions.prepare` 构造未物化的 `SessionRecord`（不调用 `agents.create()`），正常计算并响应 `configOptions`、`modes` 与 `available_commands_update`，在取消、关闭或拆卸时零刷盘且不在 `$DSH_HOME/acp-sessions` 下留下任何文件；仅当后续收到 `prompt`、`setSessionConfigOption` 或 `setSessionMode` 时才通过 `materializeProbeRecord` 惰性创建 `Agent`；
+- **严格图片能力声明与纯文字路由快速拒绝**：`imagePromptEnabled` 要求挂载了 `attachments` 且 `imageLimits.mediaTypes` 至少包含一种 ACP 光栅格式（`image/png`、`image/jpeg`、`image/webp`、`image/gif`），并在 `admitPrompt` 调用 `saveImages` 持久化字节前对纯文字模型（如 `deepseek-v4-pro`）以 `-32602` 拒绝图片。
 
 ## 后续阶段
 
@@ -204,3 +212,10 @@ dsh agent loop -> selected provider (DeepSeek or user-configured route)
 2. 同一步骤内并行的两次委托各自归属到自己的卡片，transcript 与结果互不串流；嵌套委托在直接子 agent 之下缩进呈现。
 3. `session/cancel` 与 bridge 释放都在父 turn 内停掉子 agent，prompt 以 `cancelled` 结算，卡片状态为 `failed` 且 transcript 以 `Subagent aborted` 结尾；结算后的子事件不再产生更新。
 4. 子 session 不出现在 `session/list`，`session/load`／`session/resume` 明确拒绝；子 agent 文本不会成为顶层 `agent_message_chunk`。
+
+## 第八阶段验收
+
+1. 真实 launcher 接受 T3 Code 的 v2/v1 混合 `initialize`（`protocolVersion: 2` 返回 `1`，支持 `capabilities`/`info` 回退），并拒绝非法 `initialize` 参数（`-32602`）。
+2. 含空格路径的 stdio MCP bridge 可正确启动、保留 `T3_ACP_MCP_ENDPOINT`/`T3_ACP_MCP_AUTHORIZATION` 环境变量、完成 `server/discover -> -32601` 协商回退并执行工具调用。
+3. 真实 launcher 上 `t3-code-provider-test` 与 `t3-code-provider-probe`（`mcpServers: []`）完整走完 `session/new → cancel → session/close → exit` 后，在 `$DSH_ACP_SESSIONS_ROOT`、`$DSH_HOME/acp-sessions` 与 `$DSH_AGENTS_HOME` 下零文件残留；若对该探针继续调用 `prompt`、`setSessionConfigOption` 或 `setSessionMode`，则惰性物化 `Agent` 并正常工作。
+4. 仅声明非光栅图片 MIME 的 store 不公布 `promptCapabilities.image`；纯文字模型在收到图片 prompt 时于持久化字节前返回 `-32602`。

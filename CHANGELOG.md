@@ -2,6 +2,24 @@
 
 Release notes for [dsh-acp-interactive](README.md). 中文版见 [CHANGELOG.zh.md](CHANGELOG.zh.md).
 
+## 1.5.0
+
+Version `1.5.0` moves the composed DeepSeek Harness baseline from `0.2.0-rc.2` to `0.2.2-rc.5` and resolves four ACP client integration issues surfaced with T3 Code (`driver: "acpRegistry"`). The advertised ACP surface remains grounded in `@agentclientprotocol/sdk` `1.4.0`.
+
+Key updates for upstream `0.2.2-rc.5`:
+- **Composition and schema alignment**: Removed the deleted `@deepseek-ai/dsh-invariants` package, `*/invariant` config rows, and `src/invariant.ts`; added `@deepseek-ai/dsh-working-directory` (removing the deleted `{{cwd}}` prompt variable from `system-prompt`) and `@deepseek-ai/dsh-tool-executor-native`; raised `session-title-first-prompt-llm` `maxOutputTokens` to `4096` (`timeoutMs: 60000`); dropped the hardcoded `llm-deepseek` `models:` override to track upstream `DEFAULT_MODELS` (`deepseek-flash` `[text, image]`, `deepseek-v4-pro` `[text]`) and live `/models` listing; and updated `config/editor-profile.json` (`61` composed plugins, `7` reviewed capabilities) and `config/upstream-baseline.json` (`dsh-v0.2.2-rc.5`, `codec.spec.ts` unchanged and passing).
+- **Per-step model selection (`agent.model`)**: Replaced the removed `ModelSelectionRef` API with `installModelSelection(agentCtx)` and `agent.model.current()` / `agent.model.select()`, applying route and reasoning changes on the next model step rather than only per turn.
+- **Managed subagent activations and quiescence**: Replaced `drainContinuableDescendants` with `subagents.waitForTreeWork` and `subagents.drainDescendants` (plus non-destructive `subagents.interrupt` on user `session/cancel`), updated `agent/error` / `agent/status` / `turn/start` state handling, dropped obsolete `enableRunInBackground` and `toolFilter` options from `tool-subagent`, updated `SubagentTracker` / `SubagentCard` to fold live child events until `subagent/end` settles the parent card (with `subagent/descriptor` fallback and post-start `subagent/catalog` v3 updates), narrowed `isDelegatedSession` to `header.origin === 'subagent'`, and aligned with `dsh-user-questions` `DELEGATED_CALLER` enforcement.
+- **MCP config alignment**: Wrapped stdio and Streamable HTTP declarations with `McpClient.Config` (`closeTimeoutMs: 5000`, `expandTemplates: false`, `toolCallTimeoutMs: 60000`, `failOnStartupError: true`) while preserving null-prototype `env` and `headers` records.
+
+Key T3 Code compatibility fixes:
+- **Hybrid v2/v1 `initialize` negotiation**: Accepts `protocolVersion >= 1` and v2 `info` / `capabilities` fallbacks (`clientCapabilities ?? capabilities`, `clientInfo?.name ?? info?.name`) without `.strict()` rejection while replying with `protocolVersion: 1`.
+- **Space-containing stdio MCP bridge paths**: Executes stdio commands directly with `shell: false`, explicit `env` preservation (such as `T3_ACP_MCP_ENDPOINT` and `T3_ACP_MCP_AUTHORIZATION`), and MCP SDK `2.2.0` `server/discover -> -32601` fallback to `initialize`.
+- **Zero-disk-residue ephemeral probe sessions**: Prepares sessions for `t3-code-provider-test` / `t3-code-provider-probe` (`mcpServers: []`) via `ctx.sessions.prepare` without `agents.create()`, serving real `configOptions`, `modes`, and `available_commands_update`, leaving zero files under `$DSH_HOME/acp-sessions` on teardown, and lazily materializing an `Agent` only if `prompt`, `setSessionConfigOption`, or `setSessionMode` is called.
+- **Raster-gated image admission**: Tightened `imagePromptEnabled` to require a mounted attachment store supporting raster image MIME types (`image/png`, `image/jpeg`, `image/webp`, `image/gif`) and rejects image blocks on text-only routes (`-32602`) before saving attachment bytes.
+
+See the [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](docs/agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md).
+
 ## 1.4.1
 
 Version `1.4.1` moves the composed DeepSeek Harness baseline from `0.2.0-rc.1` to `0.2.0-rc.2` and corrects the official DeepSeek model directory. The advertised ACP surface remains on `@agentclientprotocol/sdk` `1.4.0`, and no runtime source changed: `rc.2` is a patch-level prerelease of the same line, published about twenty-one hours after `rc.1`.

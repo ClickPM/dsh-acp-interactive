@@ -7,9 +7,9 @@
 
 English | [中文](README.zh.md)
 
-Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh agents on demand and projects their live session events into ACP message, thought, tool, permission, plan, title, usage, and command updates. Zed is the first compatibility target.
+Editor-facing Agent Client Protocol server over JSON-RPC stdio. It creates dsh agents on demand and projects their live session events into ACP message, thought, tool, permission, plan, title, usage, and command updates. Zed is the primary compatibility target, and the launcher also supports local ACP registration in T3 Code (`driver: "acpRegistry"`).
 
-The package ships both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition bundled in `config/cordis.yml` — DeepSeek and user providers, the agent spine, model-generated session titles, file and filesystem-search tools, in-process subagents, shell, permissions, persistence, human commands, and the ACP transport — so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
+The package ships both the UI transport plugin and the `dsh-acp-interactive` executable. The transport contains no domain logic; the executable loads the complete Cordis composition bundled in `config/cordis.yml` — DeepSeek and user providers, the agent spine, `dsh-working-directory`, `dsh-tool-executor-native`, model-generated session titles, file and filesystem-search tools, in-process subagents, shell, permissions, persistence, human commands, and the ACP transport — so ordinary users do not need a DeepSeek Harness source checkout. This UI bridge is separate from the upstream automation-only ACP transport.
 
 `dsh-acp-interactive` is an independent, community-maintained project. It is not affiliated with or endorsed by DeepSeek or Zed Industries; it composes the published `@deepseek-ai/dsh-*` packages behind a reviewed editor profile and does not claim to be the official DeepSeek ACP agent.
 
@@ -34,11 +34,11 @@ dsh-acp-interactive --setup
 }
 ```
 
-After saving, open Zed's Agent panel (`Ctrl+?` / `Cmd+?`) and select `dsh-acp-interactive` from the dropdown list at the top. JSONL sessions live under `acp-sessions` in the dsh home (see [Configuration](#configuration)), partitioned by each session's cwd and independent of the directory the server was started from; set `DSH_ACP_SESSIONS_ROOT` to keep them elsewhere. Every server process owns a separate in-memory SQLite session-query index, so several editor processes can share the JSONL source of truth without contending for the derived index.
+After saving, open Zed's Agent panel (`Ctrl+?` / `Cmd+?`) and select `dsh-acp-interactive` from the dropdown list at the top. For **T3 Code** local ACP registration alongside Zed, configure the installed `dsh-acp-interactive` launcher with `driver: "acpRegistry"`: the server negotiates hybrid v2/v1 `initialize` handshakes, preserves explicit environment variables across space-containing stdio MCP bridge paths, and runs `t3-code-provider-test` / `t3-code-provider-probe` probes without writing session files to disk. JSONL sessions live under `acp-sessions` in the dsh home (see [Configuration](#configuration)), partitioned by each session's cwd and independent of the directory the server was started from; set `DSH_ACP_SESSIONS_ROOT` to keep them elsewhere. Every server process owns a separate in-memory SQLite session-query index, so several editor processes can share the JSONL source of truth without contending for the derived index.
 
 Skipping `--setup` is fine: a thread opened without a stored key shows a `Configure DeepSeek API key` action that runs the same flow (see [Authentication](#authentication)); clients without terminal authentication receive its instructions as an agent-type method instead.
 
-The published tarball already contains the built `lib/`; no build step runs at install time. Every published version corresponds to a `vX.Y.Z` tag and a [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases) whose assets include the tarball and its SHA-256 checksum, so an installation can be audited against the tagged source. Supported Zed versions and verification status are in the [Zed compatibility matrix](docs/compatibility.en.md); this release uses the stable ACP v1 schema from SDK `1.4.0` as its baseline.
+The published tarball already contains the built `lib/`; no build step runs at install time. Every published version corresponds to a `vX.Y.Z` tag and a [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases) whose assets include the tarball and its SHA-256 checksum, so an installation can be audited against the tagged source. Supported Zed versions and verification status are in the [Zed compatibility matrix](docs/compatibility.en.md); this release tracks DeepSeek Harness `0.2.2-rc.5` and uses the stable ACP v1 schema from SDK `1.4.0` as its baseline (accepting `protocolVersion >= 1` and replying with `1`).
 
 ## In Zed
 
@@ -66,9 +66,15 @@ Tool calls run inside the Harness sandbox. Under the `read-only` preset a write 
 
 ![The approved write card with its content, the read-back, and the created file](assets/zed-edit-result.png)
 
-## What's new in 1.3.0
+## What's new in 1.5.0
 
-Version `1.3.0` adds in-process subagents. The composed profile mounts the published `@deepseek-ai/dsh-subagent` registry with its `spawn` and `fork` backends and two delegation tools, `subagent` and `subagent_fork`: the model delegates a self-contained or conversation-seeded task and receives the child's final answer as the tool result. In Zed a delegation is one tool card — the child's own tool calls, replies, nested delegations, and settlement fold into a bounded transcript inside the card while it runs, and the parent's tool result settles it. Delegations wait in the foreground inside the parent's turn, children inherit the parent's sandbox with approval pinned to `never` and never raise an ACP permission request, and child sessions are not editor sessions. See the [In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md), and the [changelog](CHANGELOG.md) for earlier releases.
+Version `1.5.0` upgrades the composed DeepSeek Harness baseline to `0.2.2-rc.5` and adds T3 Code compatibility:
+
+- **0.2.2-rc.5 runtime alignment**: composes `@deepseek-ai/dsh-working-directory` (removing the deleted `{{cwd}}` template variable from `system-prompt`) and `@deepseek-ai/dsh-tool-executor-native`, removes the deleted `@deepseek-ai/dsh-invariants` package, migrates model switching to per-step `agent.model` (`installModelSelection` / `current()` / `select()`), raises `session-title-first-prompt-llm` `maxOutputTokens` to `4096`, and tracks upstream `DEFAULT_MODELS` (`deepseek-flash` `[text, image]` and `deepseek-v4-pro` `[text]`) via live `/models` listing.
+- **Managed in-process subagents**: `subagent` and `subagent_fork` (introduced in `1.3.0`) now launch async managed activations (`delivery: 'parent'`) settled via `waitForTreeWork` and `drainDescendants` quiescence (`interrupt` on user `session/cancel`). The parent card stays `in_progress` while folding child events until `subagent/end`, child sessions are excluded solely by `origin === 'subagent'`, and `dsh-user-questions` rejects live delegated callers with `DELEGATED_CALLER`.
+- **T3 Code ACP integration**: accepts hybrid v2/v1 `initialize` payloads (`protocolVersion >= 1` returning `1`, `clientInfo ?? info`, `clientCapabilities ?? capabilities`), supports stdio MCP bridge commands containing spaces (`shell: false`, preserved `env`, `McpClient.Config` defaults), keeps `t3-code-provider-test` / `t3-code-provider-probe` probes zero-disk-residue until an agent is actually mutated or prompted, and gates `imagePromptEnabled` on raster attachment MIME support while rejecting images on text-only models (`-32602`) before persistence.
+
+See the [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](docs/agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md), the [In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md), and the [changelog](CHANGELOG.md) for earlier releases.
 
 ## Configuration
 
@@ -76,7 +82,7 @@ State lives in the dsh home — `$DSH_HOME`, or the current user's default `.dsh
 
 At startup, Windows registers the native `pwsh` tool while Linux and macOS register `bash`; the model never receives both tool dialects. Stdout carries JSON-RPC frames only.
 
-An explicitly configured image-capable model must declare its input modalities; without them the DeepSeek adapter treats the entry as text-only and the bridge rejects image admission before queuing the prompt:
+The official `@deepseek-ai/dsh-llm-deepseek-api-key` adapter defaults to `DEFAULT_MODELS` (`deepseek-flash` with `inputModalities: [text, image]`, and `deepseek-v4-pro` text-only) and refreshes from `/models`. Any custom image-capable model must declare its input modalities; without them the bridge treats the entry as text-only and rejects image admission with `-32602` before persisting bytes or queuing the prompt (and `promptCapabilities.image` requires a mounted attachment store supporting raster image MIME types):
 
 ```yaml
 - id: deepseek-flash
@@ -101,10 +107,10 @@ Custom deployments may instead consume only the transport export and mount it in
 
 ## What it implements
 
-- `initialize`, `session/new`, `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`.
+- `initialize` (including hybrid v2/v1 negotiation), `session/new` (with zero-disk-residue ephemeral probes for `t3-code-provider-test` / `t3-code-provider-probe`), `session/prompt`, `session/cancel`, `session/list`, `session/load`, `session/resume`, and `session/close`.
 - Streaming text and reasoning, tool cards built from each tool's own presentation intents (generic, diff, terminal), subagent delegation cards, plans, model-generated session titles, usage, and permission requests.
-- Session configuration options — the provider/model route, reasoning effort, plan mode, and Harness permission presets — all switchable in a running session.
-- Session-scoped MCP: stable ACP v1 stdio and Streamable HTTP servers in per-session Cordis roots, with deterministic `mcp__<server>__<tool>` names.
+- Session configuration options — the provider/model route (per-step via `agent.model`), reasoning effort, plan mode, and Harness permission presets — all switchable in a running session.
+- Session-scoped MCP: stable ACP v1 stdio (including executable paths with spaces and preserved env) and Streamable HTTP servers in per-session Cordis roots, with deterministic `mcp__<server>__<tool>` names.
 - A command catalog merging the session's `ctx.commands` view with the user-invocable skills discovered for its cwd; the bundled profile composes `/permission`, `/plan`, `/compact`, `/goal`, and `/feedback`.
 - Text, resource-link, and inline image prompts, and structured user questions through ACP form elicitation.
 
@@ -118,7 +124,7 @@ The full behavior — plugin contract, authentication, per-method semantics, con
 - Session cost is sent only after a Harness backend supplies a reliable cumulative amount and currency; the bridge does not estimate cost from token prices.
 - MCP supports stable-v1 stdio and Streamable HTTP configuration only; legacy SSE and ACP-proxied transports are rejected. Additional directories remains outside this repository and belongs to the independent `dsh-additional-directories` DSH plugin project.
 - Terminal output is delivered at tool completion rather than incrementally.
-- Subagents run in the foreground only. `run_in_background`, continuable children, `send_message`, `interrupt_agent`, `list_agents`, and the out-of-process ACP, Codex, and Claude Code backends are not composed. A restored session replays a delegation as its settled result card without the child transcript, and stable ACP has no child-session capability yet, so the card carries the child session id in `_meta.dsh_subagent` rather than a navigable child thread.
+- Subagent delegations run as managed activations (`delivery: 'parent'`) settled within the parent prompt's turn tree (`waitForTreeWork` / `drainDescendants` quiescence, parent card held `in_progress` until `subagent/end`, `dsh-user-questions` enforcing `DELEGATED_CALLER`, child sessions excluded by `origin === 'subagent'`). Continuable steering and control tools (`send_message`, `interrupt_agent`, `list_agents` in `dsh-tool-subagent-control`), `dsh-agent-team`, and the out-of-process ACP, Codex, and Claude Code backends are not composed. A restored session replays a delegation as its settled result card without the child transcript, and stable ACP has no child-session capability yet, so the card carries the child session id in `_meta.dsh_subagent` rather than a navigable child thread.
 
 ## Verification and ACP Registry
 

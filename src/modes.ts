@@ -3,6 +3,7 @@
 import type { SessionModeState } from '@agentclientprotocol/sdk'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Session } from '@deepseek-ai/dsh-session'
 
 /** ACP id for ordinary execution mode. */
 export const DEFAULT_MODE_ID = 'default'
@@ -29,12 +30,13 @@ export function planModeDirectory(ctx: Context): PlanModeDirectory | undefined {
 /**
  * Build initial ACP mode state, or omit modes when plan mode is not composed.
  * @param ctx - composition that may provide plan mode.
- * @param agent - exact session whose mode is projected.
+ * @param target - live agent or prepared session whose mode is projected.
  * @returns ACP mode state, or undefined when the capability is absent.
  */
-export function sessionModes(ctx: Context, agent: Agent): SessionModeState | undefined {
+export function sessionModes(ctx: Context, target: Agent | Session): SessionModeState | undefined {
   const planMode = planModeDirectory(ctx)
   if (planMode === undefined) return undefined
+  const agent = 'header' in target ? ({ session: target } as Agent) : target
   const state = planMode.get(agent)
   return {
     availableModes: [

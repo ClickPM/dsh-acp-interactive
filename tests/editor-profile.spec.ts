@@ -24,10 +24,10 @@ describe('editor profile audit', () => {
   })
 
   it('resolves subpath companions to the package that must be installed', () => {
-    expect(owningPackage('@deepseek-ai/dsh-agent/invariant')).toBe('@deepseek-ai/dsh-agent')
+    expect(owningPackage('@deepseek-ai/dsh-plugin-manager/tools')).toBe('@deepseek-ai/dsh-plugin-manager')
     expect(owningPackage('@deepseek-ai/dsh-agent')).toBe('@deepseek-ai/dsh-agent')
-    expect(owningPackage('@deepseek-ai/dsh-tool-subagent-control/list-agents'))
-      .toBe('@deepseek-ai/dsh-tool-subagent-control')
+    expect(owningPackage('@deepseek-ai/dsh-tool-subagent/model-selection-settings'))
+      .toBe('@deepseek-ai/dsh-tool-subagent')
     expect(owningPackage('local-plugin/sub')).toBe('local-plugin')
   })
 
@@ -59,5 +59,9 @@ describe('editor profile audit', () => {
     expect(packages).toContain('@deepseek-ai/dsh-session-title-first-prompt-llm')
     expect(packages).toContain('@deepseek-ai/dsh-tool-fs-search')
     expect(packages).toContain('@deepseek-ai/dsh-tool-call-timeout-policy')
+    expect(packages).toContain('@deepseek-ai/dsh-tool-executor-native')
+    expect(packages).toContain('@deepseek-ai/dsh-working-directory')
+    expect(packages).not.toContain('@deepseek-ai/dsh-invariants')
+    expect(packages).not.toContain('@deepseek-ai/dsh-web-deepseek-api')
   })
 })

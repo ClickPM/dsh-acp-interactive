@@ -21,7 +21,9 @@ Registry 发布准备增加了条件公布的 ACP terminal authentication：
 继续委托已发布的 Harness credentials provider；普通 ACP 进程不读取、复制或输出
 密钥。设计决定见 [Registry Terminal Auth Agent Note](agent-notes/2026-08-28-registry-terminal-auth.md)。
 
-版本 `1.3.0` 把进程内 subagent 作为阶段 B 的一项选入能力加入 editor profile：已发布的 subagent 注册表、spawn 与 fork backend 以及委托工具，每次委托投影为一张父工具卡片，并覆盖阶段 B 验收要求的取消、settlement、迟到事件抑制与 teardown 路径。后台、continuable 与进程外子 agent 继续暂缓。见 [In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md)。
+版本 `1.3.0` 把进程内 subagent 作为阶段 B 的一项选入能力加入 editor profile：已发布的 subagent 注册表、spawn 与 fork backend 以及委托工具，每次委托投影为一张父工具卡片，并覆盖阶段 B 验收要求的取消、settlement、迟到事件抑制与 teardown 路径。
+
+版本 `1.5.0` 将组合 profile（`config/editor-profile.json` 中共 `61` 个 bare 插件、`7` 项已评审能力）对齐至 DeepSeek Harness `0.2.2-rc.5`：纳入 `@deepseek-ai/dsh-working-directory` 与 `@deepseek-ai/dsh-tool-executor-native`，移除已删除的 `@deepseek-ai/dsh-invariants`，采用按 step 生效的 `agent.model`（`installModelSelection`），将 subagent 迁移至受管 activation（`delivery: 'parent'`、`waitForTreeWork` / `drainDescendants` / `interrupt`、父卡片在 `subagent/end` 前保持打开、按 `origin === 'subagent'` 排除、`dsh-user-questions` 强制 `DELEGATED_CALLER`），并落地四项 T3 Code（`driver: "acpRegistry"`）兼容修复（v2/v1 混合 `initialize`、含空格路径 stdio MCP bridge、零磁盘残留探针会话，以及光栅 MIME 门控与纯文字模型快速失败校验）。continuable 控制工具（`dsh-tool-subagent-control`）、`dsh-agent-team`、`dsh-web-deepseek-api`、`dsh-tool-working-directory`、`dsh-tool-executor-ptc`、spill/pruning 策略及进程外 subagent backend 继续暂缓。见 [In-Process Subagents Agent Note](agent-notes/2026-09-10-in-process-subagents.md) 与 [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md)。
 
 在恢复新增功能开发前，当前质量优先顺序为 `Q0 → Q1 → Q2 → Q3 → Q4`：来源边界、公开跨平台 CI、固定／最新上游兼容流水线、真实 Zed 验证、发行与 Registry 证据。项目不以其他社区实现的功能表作为路线图输入。原则、验收门和非目标见[上游贴合、公开 CI 与 Zed 验证规范](upstream-alignment.md)。
 

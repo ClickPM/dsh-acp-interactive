@@ -44,22 +44,24 @@ stdout 仅传输 JSON-RPC 的约束。
 提问前展示该认证方法，而不是在第一次模型请求时才报错。该检查只读取凭据的
 "已配置"状态，不读取值；`--setup` 存入的 key 会被下一次 `session/new`
 直接看到，无需重启。选择其他默认 provider 的部署不做此门控；模型目录中还有
-其他 provider（例如 `settings.yaml` 里的 `llm-pi-ai` 路由）时也不做——这样的
+其他 provider（例如 `$DSH_HOME/cordis.patch.yml` 或旧版 `settings.yaml` 里的 `llm-pi-ai` 路由）时也不做——这样的
 用户可能持有那些路由的凭据并切换过去。但当前 route 为 DeepSeek 官方 provider
 的 `session/prompt` 无论如何都会做同样的检查，因此缺少 DeepSeek key 表现为
 `auth_required`（客户端随即展示认证操作），而不是模型调用错误；直接的斜杠命令
 不做门控。
 ## 协议
 
-插件实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume` 和 `session/close`。文本与 reasoning 增量会立即流式发送。工具调用读取每个工具的 `presentCall`、`presentResult` 和持久化的 `presentationMeta`；`generic`、`diff` 和 `terminal` 意图无需按工具名分支即可映射为 ACP 卡片。Editor profile 新增的 `glob`／`grep` 由 Harness 的已发布 filesystem-search 插件和随包 ripgrep 执行，仍走相同通用投影。通过 `subagent` 或 `subagent_fork` 工具发起的委托也是同类卡片：子 agent 的事件折叠为卡片内有界的 transcript，父 agent 的工具结果结算卡片。`todo/write`、`session/title`、请求容量、provider 用量以及命令注册表变化会更新对应的客户端 session。
+插件实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume` 和 `session/close`。`initialize` 接受发送 `protocolVersion >= 1` 的 v2/v1 混合客户端（当缺少 `clientInfo` 或 `clientCapabilities` 时回退读取 v2 的 `info` 与 `capabilities`），并统一返回 `protocolVersion: 1`。文本与 reasoning 增量会立即流式发送。工具调用读取每个工具的 `presentCall`、`presentResult` 和持久化的 `presentationMeta`；`generic`、`diff` 和 `terminal` 意图无需按工具名分支即可映射为 ACP 卡片。Editor profile 的 `glob`／`grep` 由 Harness 的已发布 filesystem-search 插件和随包 ripgrep 执行，仍走相同通用投影。通过 `subagent` 或 `subagent_fork` 工具发起的委托会启动一条受管 activation（`delivery: 'parent'`）并生成同类卡片：初始标题在 `subagent/catalog` 缺失时回退读取子 session 的 `subagent/descriptor`，start 后到达的 `subagent/catalog`（v3）会更新卡片，父 `tool/result` 成功返回时卡片保持 `in_progress` 状态并持续把子 agent 事件折叠为有界 transcript，直到 `subagent/end` 到来才连同子 agent 最终输出一并结算。`todo/write`、`session/title`、请求容量、provider 用量以及命令注册表变化会更新对应的客户端 session。
 
-新会话收到第一条合格的文字提示后，会先发布 Harness 的即时确定性回退标题，再异步使用该次主请求已记录的精确 provider/model route 概括标题。模型结果作为新的 `session/title` 事件持久化并通过 `session_info_update` 替换客户端标题；生成失败、超时或输入超过 4096 字节时保留回退标题，不影响主 agent 响应。后续提示不会自动反复改名。
+无状态探针客户端（`clientName === 't3-code-provider-test'` 或 `'t3-code-provider-probe'`）以 `mcpServers: []` 发起 `session/new` 时，仍经过参数与凭据校验，随后仅通过 `ctx.sessions.prepare` 构造未物化的内存 `Session`（不调用 `agents.create()`），正常返回 `configOptions`、`modes` 与 `available_commands_update`，并在取消、关闭或拆卸后在 `$DSH_HOME/acp-sessions` 下不留任何文件；若之后实际收到 `prompt`、`setSessionConfigOption` 或 `setSessionMode`，再惰性创建对应的 `Agent`。
 
-`session/list` 从 live 优先的查询语料库读取 session，按确定性的创建时间倒序返回，省略没有已记录绝对 cwd 的 session，支持精确 cwd 过滤，并尽可能附带日志中的标题。当前响应为不分页的完整结果；非 null cursor 会明确失败。
+新会话收到第一条合格的文字提示后，会先发布 Harness 的即时确定性回退标题，再异步使用该次主请求已记录的精确 provider/model route 概括标题。模型结果作为新的 `session/title` 事件持久化并通过 `session_info_update` 替换客户端标题；包内组合将 `maxOutputTokens` 设为 `4096`、`timeoutMs` 设为 `60000` 以为思考模型留足输出上限，生成失败、超时或输入超过 4096 字节时保留回退标题，不影响主 agent 响应。后续提示不会自动反复改名。
 
-`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史。`session/close` 取消进行中的 prompt 准入、skill 发现、模型或命令工作，等待输出与 continuable 后代静止，通过标准 `ctx.sessions.flush()` durability barrier 后再释放精确归属的 agent；成功返回后，另一个共享 JSONL 真源的进程可以立即发现并恢复历史。Checkpoint 失败仍会释放在线资源并明确报错，close 不删除持久历史。
+`session/list` 从 live 优先的查询语料库读取 session，按确定性的创建时间倒序返回，省略没有已记录绝对 cwd 的 session 以及委派子会话（通过 `isDelegatedSession` 判断 `origin === 'subagent'`），支持精确 cwd 过滤，并尽可能附带日志中的标题。当前响应为不分页的完整结果；非 null cursor 会明确失败。
 
-MCP 配置是在线、完整且逐 session 归属的。Stdio command 直接以 executable 加 argv 传递，不经过 shell 拼接；显式 env 和 HTTP headers 不会持久化到 session log，也不会进入模型上下文。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
+`session/load` 恢复持久化 dsh agent，并在返回前重放已组装的人类与 assistant 消息、reasoning、图片、工具卡片、最新计划与标题、最终用量以及命令目录。它不会重放原始 assistant chunk，因此组装后的消息只出现一次。`session/resume` 恢复相同上下文但不发送历史；两者都明确拒绝 `origin === 'subagent'` 的子会话。Prompt 结算循环等待 `agent.whenIdle()` 与 `subagents.waitForTreeWork(agent)` 直至父 agent 空闲且 `session.seq` 不再变化；用户发起的 `session/cancel` 通过非破坏性的 `subagents.interrupt(...)` 中断活跃子链接，而 `session/close` 与连接拆卸会取消进行中的 prompt 准入、skill 发现、模型或命令工作，通过 `drainDescendants` 排空活跃 subagent 后代，通过标准 `ctx.sessions.flush()` durability barrier 后再释放精确归属的 agent；成功返回后，另一个共享 JSONL 真源的进程可以立即发现并恢复历史。Checkpoint 失败仍会释放在线资源并明确报错，close 不删除持久历史。
+
+MCP 配置是在线、完整且逐 session 归属的。声明通过 `McpClient.Config` 规范化（`closeTimeoutMs: 5000`、`expandTemplates: false`、`toolCallTimeoutMs: 60000`、`failOnStartupError: true`）。Stdio command 直接以 executable 加 argv（`shell: false`，支持路径含空格）传递，不经过 shell 拼接；显式零原型 env（如 `T3_ACP_MCP_ENDPOINT`、`T3_ACP_MCP_AUTHORIZATION`）和 HTTP headers 叠加在去敏后的父环境之上，不会持久化到 session log，也不会进入模型上下文。MCP SDK `2.2.0` 自动协商协议版本（遇到 `server/discover -> -32601` 时回退至 `initialize`）。支持稳定 ACP v1 的 stdio 与 HTTP transport；SSE、ACP 代理 MCP 和未知变体会明确失败。初始连接或工具发现失败会使整个创建／恢复事务失败，并回滚此前已经启动的全部 server。Load/resume 只采用当前请求的完整配置，因此省略、移除、更换或启动失败的 server 都不会继承旧连接。确定性的 `mcp__<server>__<tool>` 名称在恢复后保持稳定，同时逐 session 私有 Cordis root 允许两个 session 使用同名 server 而不共享工具。
 
 个人统一配置可放在客户端侧，但不是本包的运行依赖。例如 Zed 的 `context_servers` 可把每个服务配置为 `agent-config-mcp serve <service-id>`，随后通过标准 ACP `mcpServers` 传入本包；本包仍只消费协议记录，不读取个人目录或识别该命令。独立 Harness WebUI 若使用自己的 agent-config consumer，必须在每个 agent 的私有 Cordis root 中另建连接，而且不能把该 consumer 加入本包的 `config/cordis.yml`。因此 Zed ACP 与 `npx dsh` WebUI 可以共享静态服务定义和凭据引用，但不共享 MCP Client、transport、工具注册表、session ID、取消信号、子进程或重连任务。完整边界见 [Agent Note](agent-notes/2026-09-07-agent-config-integration.md)。
 
@@ -67,15 +69,15 @@ ACP 命令目录会合并精确 agent 的 `ctx.commands` 视图，以及按其 c
 
 命令目录本身不声明领域命令；包内 editor profile 挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback` 及其对应 domain/provider，目录仍只从实际的 `ctx.commands.register()` 动态发现。该 bridge 只执行已注册的 command，不把模型工具误当作斜杠命令。
 
-当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。组合 attachment store 后，初始化会声明图片输入；每张图片都会针对所选模型 route 完成校验和持久化后才排入消息，因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource 和 additional directory 会被明确拒绝；Additional directories 的领域能力由独立的 `dsh-additional-directories` DSH 插件项目负责。直接斜杠命令仍只接受文字。
+当前支持文字、resource link 和内联光栅图片 prompt。Resource link 会成为持久用户消息中明确的方括号引用。只有当 attachment store 已组合且 `imageLimits.mediaTypes` 至少包含一种 ACP 支持的光栅格式（`image/png`、`image/jpeg`、`image/webp`、`image/gif`）时，初始化才公布图片输入（`promptCapabilities.image: true`）。每张图片都会在持久化字节或消息入队前先针对所选模型 route 校验（要求 `info.inputModalities` 包含 `'image'`，纯文字模型如 `deepseek-v4-pro` 会在持久化前以 `-32602` 拒绝），因此 session 日志只保存 durable reference。重放时，图片会经校验后成为内联 ACP 内容。音频、embedded resource 和 additional directory 会被明确拒绝；Additional directories 的领域能力由独立的 `dsh-additional-directories` DSH 插件项目负责。直接斜杠命令仍只接受文字。
 
 组合 `ctx.planMode` 后，新建、加载和恢复的 session 会公布 `default` 与 `plan` mode。`session/set_mode` 委托该服务处理，已提交的 `plan/mode` 事件发布 `current_mode_update`；transport 不保留平行的 mode 状态。
 
-组合 `ctx.userQuestions` 后，插件会为自己精确拥有的根 agent 注册 provider。声明稳定 ACP form elicitation 的客户端会收到结构化问题、选项、多选字段、可选自由文本和 plan-review 详情。拒绝或关闭返回 `ASK_CANCELLED`，turn 或 request 取消返回 `ASK_ABORTED`，未知的未来 action 会失败关闭；不支持 form elicitation 的客户端会明确失败。
+组合 `ctx.userQuestions` 后，插件会为自己精确拥有的根 agent 注册 provider，同时 `dsh-user-questions` 也会对存活的委派子 agent（`origin === 'subagent'`）抛出 `DELEGATED_CALLER`。声明稳定 ACP form elicitation 的客户端会收到结构化问题、选项、多选字段、可选自由文本和 plan-review 详情。拒绝或关闭返回 `ASK_CANCELLED`，turn 或 request 取消返回 `ASK_ABORTED`，未知的未来 action 会失败关闭；不支持 form elicitation 的客户端会明确失败。
 
 ## Session 配置
 
-`session/new`、`session/load` 和 `session/resume` 返回完整的 ACP `configOptions` 列表。模型 selector 按 provider 对各 adapter 的建议目录分组，每个值编码完整的 provider/model route。所选 route 在下一次 prompt assembly 边界生效；已经进入 assembly 或正在运行的 step 保留已捕获 route。恢复的 session 使用最后一条已记录 request header；若目录不再公布该 route，它仍作为 current-only 行显示，不会被组合默认值替换。客户端提交不在当前目录中的值会被拒绝。
+`session/new`、`session/load` 和 `session/resume` 返回完整的 ACP `configOptions` 列表。模型 selector 按 provider 对各 adapter 的建议目录分组，每个值编码完整的 provider/model route。选择状态通过 agent 安装阶段挂载的 `installModelSelection(agentCtx)` 与 `agent.model.current()` / `agent.model.select(...)` 读写（未物化探针回退至部署默认值），因此所选 route 在下一个进入 prompt assembly 的 model step 生效；已经进入 assembly 或正在运行的 step 保留已捕获 route。恢复的 session 使用最后一条已记录的选择或 request header；若目录不再公布该 route，它仍作为 current-only 行显示，不会被组合默认值替换。客户端提交不在当前目录中的值会被拒绝。
 
 配置投影接受 ACP 1.x 的 `model_config` category，并按客户端 `session.configOptions.boolean` 能力协商 boolean option。当前组合没有真实 boolean 领域配置，因此不会制造或公布开关；未知 boolean 配置与错误值类型均明确拒绝。
 
@@ -117,7 +119,7 @@ Subagent 卡片同样只属于客户端。折叠进父卡片的子 agent transcr
 
 ACP 更新不增加模型 token。工具结果保留普通 dsh 模型可见成本。一次委托由子 agent 在继承或配置的 route 上发起自己的请求；父 agent 只为该工具调用和子 agent 的最终输出付出 token。
 
-模型生成标题使用独立的辅助请求。它只读取首条合格用户消息，最多输出 32 token，并产生所选 route 的普通用量；生成的标题及其输入封装都不会进入主 agent 历史。
+模型生成标题使用独立的辅助请求。它只读取首条合格用户消息，在包内组合中将输出上限设为 `maxOutputTokens: 4096`（为思考 token 预留空间），并产生所选 route 的普通用量；生成的标题及其输入封装都不会进入主 agent 历史。
 
 #### KV Cache 影响
 

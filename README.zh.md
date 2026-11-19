@@ -7,9 +7,9 @@
 
 [English](README.md) | 中文
 
-面向编辑器的 Agent Client Protocol JSON-RPC stdio 服务器。它按需创建 dsh agent，并把实时 session 事件投影为 ACP 消息、思考、工具、审批、计划、标题、用量和命令更新。首个兼容目标是 Zed。
+面向编辑器的 Agent Client Protocol JSON-RPC stdio 服务器。它按需创建 dsh agent，并把实时 session 事件投影为 ACP 消息、思考、工具、审批、计划、标题、用量和命令更新。首个兼容目标是 Zed，启动器同时也支持 T3 Code 的本地 ACP 注册（`driver: "acpRegistry"`）。
 
-本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合（`config/cordis.yml`）——DeepSeek 与用户 provider、agent spine、模型生成的会话标题、文件与 filesystem-search 工具、进程内 subagent、shell、权限、持久化、人类命令及 ACP transport——因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
+本包同时发布 UI transport 插件和 `dsh-acp-interactive` 可执行程序。transport 不承载领域逻辑；可执行程序加载随包发布的完整 Cordis 组合（`config/cordis.yml`）——DeepSeek 与用户 provider、agent spine、`dsh-working-directory`、`dsh-tool-executor-native`、模型生成的会话标题、文件与 filesystem-search 工具、进程内 subagent、shell、权限、持久化、人类命令及 ACP transport——因此普通用户无需安装或修改 DeepSeek Harness 源码。本 UI bridge 与上游 automation-only ACP transport 相互独立。
 
 `dsh-acp-interactive` 是独立的社区维护项目，与 DeepSeek 和 Zed Industries 没有隶属或背书关系；它把已发布的 `@deepseek-ai/dsh-*` 包组合在经过评审的 editor profile 之后，不自称 DeepSeek 官方 ACP agent。
 
@@ -34,11 +34,11 @@ dsh-acp-interactive --setup
 }
 ```
 
-保存后，在 Zed 的 Agent 面板（快捷键 `Ctrl+?` / `Cmd+?`）顶部的下拉列表中选择 `dsh-acp-interactive` 即可启用。JSONL session 存在 dsh home（见[配置](#配置)）下的 `acp-sessions`，按各 session 的 cwd 分目录，与 server 从哪个目录启动无关；设置 `DSH_ACP_SESSIONS_ROOT` 可改存别处。每个 server 进程使用独立的内存 SQLite session-query 索引，因此多个编辑器进程可以共享 JSONL 真源而不争用派生索引。
+保存后，在 Zed 的 Agent 面板（快捷键 `Ctrl+?` / `Cmd+?`）顶部的下拉列表中选择 `dsh-acp-interactive` 即可启用。若要在 **T3 Code** 中配合 Zed 进行本地 ACP 注册，请将已安装的 `dsh-acp-interactive` 启动器配置为 `driver: "acpRegistry"`：服务端支持 v2/v1 混合 `initialize` 握手、在含空格路径的 stdio MCP bridge 中保留显式环境变量，并在 `t3-code-provider-test` / `t3-code-provider-probe` 探针会话结束时不向磁盘写入任何会话文件。JSONL session 存在 dsh home（见[配置](#配置)）下的 `acp-sessions`，按各 session 的 cwd 分目录，与 server 从哪个目录启动无关；设置 `DSH_ACP_SESSIONS_ROOT` 可改存别处。每个 server 进程使用独立的内存 SQLite session-query 索引，因此多个编辑器进程可以共享 JSONL 真源而不争用派生索引。
 
 跳过 `--setup` 也可以：没有存好 key 时新开的线程会显示 `Configure DeepSeek API key` 操作，点击后运行同一个流程（见[认证](#认证)）；不支持 terminal authentication 的客户端则以 agent 类型方法收到同样的说明。
 
-发布的 tarball 已包含构建好的 `lib/`，安装时不运行构建步骤。每个已发布版本都对应一个 `vX.Y.Z` tag 和一条 [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases)，其附件包含 tarball 及其 SHA-256 校验值，因此安装结果可以对照打 tag 的源码审计。受支持版本与能力验证状态见 [Zed 兼容矩阵](docs/compatibility.md)；当前发布以 ACP SDK `1.4.0` 的稳定 v1 schema 为基线。
+发布的 tarball 已包含构建好的 `lib/`，安装时不运行构建步骤。每个已发布版本都对应一个 `vX.Y.Z` tag 和一条 [GitHub Release](https://github.com/ClickPM/dsh-acp-interactive/releases)，其附件包含 tarball 及其 SHA-256 校验值，因此安装结果可以对照打 tag 的源码审计。受支持版本与能力验证状态见 [Zed 兼容矩阵](docs/compatibility.md)；当前发布跟进 DeepSeek Harness `0.2.2-rc.5` 基线，并以 ACP SDK `1.4.0` 的稳定 v1 schema 为基础（接收 `protocolVersion >= 1` 并返回 `1`）。
 
 ## 在 Zed 中的样子
 
@@ -66,9 +66,15 @@ dsh-acp-interactive --setup
 
 ![批准后的写入卡片及其内容、回读，以及创建出的文件](assets/zed-edit-result.png)
 
-## 1.3.0 新增
+## 1.5.0 新增
 
-`1.3.0` 加入进程内 subagent。组合 profile 装配已发布的 `@deepseek-ai/dsh-subagent` 注册表、`spawn` 与 `fork` 两个 backend，以及 `subagent`、`subagent_fork` 两个委托工具：模型把一个独立任务或需要沿用本对话的任务委托出去，并以工具结果收到子 agent 的最终回答。在 Zed 中，一次委托就是一张工具卡片——运行期间子 agent 自己的工具调用、回复、嵌套委托与结算折叠为卡片内有界的 transcript，父 agent 的工具结果结算卡片。委托只在父 turn 内前台等待；子 agent 继承父 session 的 sandbox mode、approval 固定为 `never`，不会发起 ACP permission request；子 session 也不是编辑器会话。见 [In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md)，更早版本见[更新日志](CHANGELOG.zh.md)。
+`1.5.0` 将组合的 DeepSeek Harness 基线升级至 `0.2.2-rc.5`，并解决 T3 Code 的四项兼容性问题：
+
+- **0.2.2-rc.5 运行时对齐**：组合 `@deepseek-ai/dsh-working-directory`（从 `system-prompt` 移除已删除的 `{{cwd}}` 模板变量）与 `@deepseek-ai/dsh-tool-executor-native`，移除上游已删除的 `@deepseek-ai/dsh-invariants`，将模型选择迁移至按 step 生效的 `agent.model`（`installModelSelection` / `current()` / `select()`），将 `session-title-first-prompt-llm` 的 `maxOutputTokens` 提升至 `4096`，并移除手写模型覆盖以跟随上游 `DEFAULT_MODELS`（`deepseek-flash` `[text, image]` 与 `deepseek-v4-pro` `[text]`）及 `/models` 目录。
+- **受管进程内 subagent activation**：`subagent` 与 `subagent_fork`（于 `1.3.0` 引入）现在启动异步受管 activation（`delivery: 'parent'`），通过 `waitForTreeWork` 与 `drainDescendants` 达到树静止（用户 `session/cancel` 发出 `interrupt`）。父卡片在 `subagent/end` 之前保持 `in_progress` 并持续折叠子事件，子 session 仅依据 `origin === 'subagent'` 过滤，`dsh-user-questions` 以 `DELEGATED_CALLER` 拒绝存活的委托调用方。
+- **T3 Code ACP 集成兼容**：支持 v2/v1 混合 `initialize` 协商（`protocolVersion >= 1` 返回 `1`、`clientInfo ?? info`、`clientCapabilities ?? capabilities`），支持路径含空格的 stdio MCP bridge 命令（`shell: false`、保留 `env`、`McpClient.Config` 默认参数），让 `t3-code-provider-test` / `t3-code-provider-probe` 探针在未实际调用或修改前保持零磁盘残留，并把 `imagePromptEnabled` 收紧为要求光栅图片 MIME 支持且在持久化字节前对纯文字模型返回 `-32602`。
+
+详见 [Upstream 0.2.2-rc.5 & T3 Compatibility Agent Note](docs/agent-notes/2026-11-19-upstream-0.2.2-rc.5-and-t3-compat.md)、[In-Process Subagents Agent Note](docs/agent-notes/2026-09-10-in-process-subagents.md)，更早版本见[更新日志](CHANGELOG.zh.md)。
 
 ## 配置
 
@@ -76,7 +82,7 @@ dsh-acp-interactive --setup
 
 启动时，Windows 注册原生 `pwsh` 工具，Linux 和 macOS 注册 `bash` 工具；两套工具不会同时进入模型目录。stdout 只传输 JSON-RPC 帧。
 
-显式配置支持图片的模型时必须声明输入模态，否则 DeepSeek adapter 会把该目录项视为纯文字模型，bridge 会在 prompt 入队前拒绝图片：
+官方 `@deepseek-ai/dsh-llm-deepseek-api-key` 默认采用 `DEFAULT_MODELS`（`deepseek-flash` 支持 `[text, image]`，`deepseek-v4-pro` 仅支持文字）并通过 `/models` 刷新。显式配置自定义支持图片的模型时仍必须声明输入模态，否则 bridge 会在持久化字节或将 prompt 入队前以 `-32602` 拒绝图片输入（且 `promptCapabilities.image` 需要已挂载支持光栅图片 MIME 类型的 attachment store）：
 
 ```yaml
 - id: deepseek-flash
@@ -101,10 +107,10 @@ dsh-acp-interactive --setup
 
 ## 实现了什么
 
-- `initialize`、`session/new`、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume`、`session/close`。
+- `initialize`（含 v2/v1 混合协商）、`session/new`（对 `t3-code-provider-test` / `t3-code-provider-probe` 提供零磁盘残留探针会话）、`session/prompt`、`session/cancel`、`session/list`、`session/load`、`session/resume`、`session/close`。
 - 流式文本与 reasoning，按各工具自身展示意图（generic、diff、terminal）生成的工具卡片，subagent 委托卡片，计划，模型生成的会话标题，用量，以及审批请求。
-- Session 配置项：provider/模型 route、reasoning effort、plan mode 和 Harness 权限 preset，均可在运行中的 session 内切换。
-- 逐 session 归属的 MCP：稳定 ACP v1 的 stdio 与 Streamable HTTP server，运行在逐 session 私有的 Cordis root 中，工具名为确定性的 `mcp__<server>__<tool>`。
+- Session 配置项：provider/模型 route（通过 `agent.model` 按 step 生效）、reasoning effort、plan mode 和 Harness 权限 preset，均可在运行中的 session 内切换。
+- 逐 session 归属的 MCP：稳定 ACP v1 的 stdio（支持含空格的可执行路径与显式环境变量保留）与 Streamable HTTP server，运行在逐 session 私有的 Cordis root 中，工具名为确定性的 `mcp__<server>__<tool>`。
 - 合并精确 agent 的 `ctx.commands` 视图与按其 cwd 发现的用户可调用 skill 的命令目录；包内 profile 挂载 `/permission`、`/plan`、`/compact`、`/goal` 和 `/feedback`。
 - 文字、resource link 与内联图片 prompt，以及通过 ACP form elicitation 的结构化提问。
 
@@ -118,7 +124,7 @@ dsh-acp-interactive --setup
 - Session cost 只在 Harness 后端提供可靠的累计金额和币种后才会发送；当前不会按 token 价格猜测成本。
 - MCP 仅支持稳定 v1 的 stdio 与 Streamable HTTP 配置，legacy SSE 和 ACP 代理 transport 会被拒绝；Additional directories 仍不在本仓库实现，由独立的 `dsh-additional-directories` DSH 插件项目负责。
 - Terminal 输出在工具完成时发送，尚未增量推送。
-- Subagent 只在前台运行。`run_in_background`、continuable child、`send_message`、`interrupt_agent`、`list_agents` 以及进程外 ACP／Codex／Claude Code backend 均未组合。恢复的会话只重放委托的结算结果卡片，不带子 agent transcript；稳定 ACP 尚无子会话能力，因此卡片以 `_meta.dsh_subagent` 携带子 session id，而不是可跳转的子线程。
+- Subagent 委托作为受管 activation（`delivery: 'parent'`）在父 prompt 的 turn 树内完成结算（通过 `waitForTreeWork` / `drainDescendants` 达到静止、父卡片在 `subagent/end` 前保持 `in_progress`、`dsh-user-questions` 强制 `DELEGATED_CALLER`、子会话按 `origin === 'subagent'` 排除）。continuable 控制工具（`dsh-tool-subagent-control` 中的 `send_message`、`interrupt_agent`、`list_agents`）、`dsh-agent-team` 以及进程外 ACP／Codex／Claude Code backend 均未组合。恢复的会话只重放委托的结算结果卡片，不带子 agent transcript；稳定 ACP 尚无子会话能力，因此卡片以 `_meta.dsh_subagent` 携带子 session id，而不是可跳转的子线程。
 
 ## 验证与 ACP Registry
 

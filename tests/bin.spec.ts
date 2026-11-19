@@ -243,7 +243,7 @@ async function mockToolServer(options: {
       }
       requests.push(payload)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      const isTitleRequest = payload.max_completion_tokens === 32
+      const isTitleRequest = payload.max_completion_tokens === 4096
         && payload.messages?.some(message => message.role === 'system'
           && message.content?.includes('Create a concise title for an AI coding-assistant session')) === true
       if (isTitleRequest) {
@@ -555,9 +555,11 @@ it('delegates to an in-process subagent through the built launcher and settles i
       ],
       _meta: { dsh_subagent: expect.objectContaining({ stop_reason: 'completed' }) },
     })
-    // Parent turn, child turn, parent wrap-up, and the parent's title request;
-    // the child session gets no title of its own and raises no permission request.
-    expect(mock.requests).toHaveLength(4)
+    // Parent delegation step, parent turn-1 completion after tool receipt,
+    // child turn, parent's wrap-up turn after settlement, and the parent's
+    // title request; the child session gets no title of its own and raises no
+    // permission request.
+    expect(mock.requests).toHaveLength(5)
     expect(permissionRequests).toEqual([])
     const listed = await client.listSessions({ cwd: root })
     expect(listed.sessions.map(entry => entry.sessionId)).toEqual([session.sessionId])

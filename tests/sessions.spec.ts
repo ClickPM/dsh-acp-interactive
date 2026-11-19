@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import {
   makeHarness,
@@ -250,10 +250,11 @@ describe('interactive ACP persisted sessions', () => {
     const draining = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
     harness.ctx.provide('subagents', {
-      drainContinuableDescendants: () => {
+      drainDescendants: () => {
         draining.resolve(undefined)
         return release.promise
       },
+      waitForTreeWork: () => Promise.resolve(false),
     } as never)
 
     const first = harness.client.closeSession({ sessionId })
